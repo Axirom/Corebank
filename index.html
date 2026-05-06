@@ -4969,6 +4969,8 @@ const DriveSync = (() => {
   let _saveTimer   = null;
   let _userInfo    = null;
   let _lastDriveTs = null;
+  let _isSharedFile = false;   // true if file belongs to another user
+  let _fileOwner    = null;    // { name, email } of file owner when shared
 
   // ── UI ─────────────────────────────────────────────────────
   function _setBadge(status, label) {
@@ -5002,7 +5004,9 @@ const DriveSync = (() => {
       gapi.load('client', async () => {
         try {
           await gapi.client.init({
-            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+            discoveryDocs: [
+            'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest',
+          ],
           });
           _gapiReady = true;
           resolve();
@@ -5119,37 +5123,96 @@ const DriveSync = (() => {
 
   // ── FIND OR CREATE FILE ────────────────────────────────────
   async function _findOrCreateFile() {
-    // 1. Find or create folder
-    let folderId = null;
+    _isSharedFile = false;
+    _fileOwner    = null;
+
+    // 1. Search in own Drive (inside the app folder)
     const folderSearch = await gapi.client.drive.files.list({
       q: `name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
       fields: 'files(id)', spaces: 'drive'
     });
+
+    let folderId = null;
     if (folderSearch.result.files.length > 0) {
       folderId = folderSearch.result.files[0].id;
-    } else {
+      const fileSearch = await gapi.client.drive.files.list({
+        q: `name='${FILE_NAME}' and '${folderId}' in parents and trashed=false`,
+        fields: 'files(id,modifiedTime,owners)', spaces: 'drive'
+      });
+      if (fileSearch.result.files.length > 0) {
+        _fileId = fileSearch.result.files[0].id;
+        localStorage.setItem('finanzas_drive_file_id', _fileId);
+        return; // Found in own Drive
+      }
+    }
+
+    // 2. Search in "Shared with me"
+    const sharedSearch = await gapi.client.drive.files.list({
+      q: `name='${FILE_NAME}' and sharedWithMe=true and trashed=false`,
+      fields: 'files(id,modifiedTime,owners)', spaces: 'drive'
+    });
+    if (sharedSearch.result.files.length > 0) {
+      const sharedFile = sharedSearch.result.files[0];
+      _fileId       = sharedFile.id;
+      _isSharedFile = true;
+      if (sharedFile.owners && sharedFile.owners.length > 0) {
+        _fileOwner = {
+          name:  sharedFile.owners[0].displayName,
+          email: sharedFile.owners[0].emailAddress
+        };
+      }
+      localStorage.setItem('finanzas_drive_file_id', _fileId);
+      return; // Found in shared files
+    }
+
+    // 3. Not found anywhere → create folder + file in own Drive
+    if (!folderId) {
       const folderCreate = await gapi.client.drive.files.create({
         resource: { name: FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' },
         fields: 'id'
       });
       folderId = folderCreate.result.id;
     }
-
-    // 2. Find or create data file
-    const fileSearch = await gapi.client.drive.files.list({
-      q: `name='${FILE_NAME}' and '${folderId}' in parents and trashed=false`,
-      fields: 'files(id,modifiedTime)', spaces: 'drive'
+    const fileCreate = await gapi.client.drive.files.create({
+      resource: { name: FILE_NAME, parents: [folderId] },
+      fields: 'id'
     });
-    if (fileSearch.result.files.length > 0) {
-      _fileId = fileSearch.result.files[0].id;
-    } else {
-      const fileCreate = await gapi.client.drive.files.create({
-        resource: { name: FILE_NAME, parents: [folderId] },
-        fields: 'id'
-      });
-      _fileId = fileCreate.result.id;
-    }
+    _fileId = fileCreate.result.id;
     localStorage.setItem('finanzas_drive_file_id', _fileId);
+  }
+
+  // ── SHARE FILE ─────────────────────────────────────────────
+  async function shareFile(email) {
+    if (!_fileId || !_accessToken) return { ok: false, msg: 'No hay archivo activo' };
+    if (_isSharedFile) return { ok: false, msg: 'Solo el propietario puede compartir el archivo' };
+    email = email.trim().toLowerCase();
+    if (!email || !email.includes('@')) return { ok: false, msg: 'Email inválido' };
+    try {
+      // Share the file
+      await gapi.client.drive.permissions.create({
+        fileId: _fileId,
+        sendNotificationEmail: false,
+        resource: { type: 'user', role: 'writer', emailAddress: email }
+      });
+      // Also share the parent folder so they can navigate to it
+      try {
+        const meta = await gapi.client.drive.files.get({
+          fileId: _fileId, fields: 'parents'
+        });
+        if (meta.result.parents && meta.result.parents[0]) {
+          await gapi.client.drive.permissions.create({
+            fileId: meta.result.parents[0],
+            sendNotificationEmail: false,
+            resource: { type: 'user', role: 'writer', emailAddress: email }
+          });
+        }
+      } catch(e) { /* folder share is best-effort */ }
+      return { ok: true };
+    } catch(e) {
+      console.error('[Drive] shareFile error', e);
+      const msg = e.result?.error?.message || 'Error al compartir';
+      return { ok: false, msg };
+    }
   }
 
   // ── READ FROM DRIVE ────────────────────────────────────────
@@ -5277,12 +5340,34 @@ const DriveSync = (() => {
 
   function _renderModalConnected(body) {
     body = body || document.getElementById('driveModalBody');
-    const name  = _userInfo?.name  || '—';
-    const email = _userInfo?.email || '—';
+    const name     = _userInfo?.name  || '—';
+    const email    = _userInfo?.email || '—';
     const initials = name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
     const lastSync = _lastDriveTs
       ? new Date(_lastDriveTs).toLocaleString('es-ES', { dateStyle:'short', timeStyle:'short' })
       : '—';
+
+    const sharedBadge = _isSharedFile
+      ? `<div style="font-size:11px;background:rgba(104,211,145,0.1);border:1px solid rgba(104,211,145,0.25);
+           color:#68d391;border-radius:8px;padding:6px 10px;margin-top:8px;text-align:left;">
+           📎 Archivo compartido por <strong>${_fileOwner?.name || _fileOwner?.email || 'otro usuario'}</strong>
+         </div>`
+      : '';
+
+    const shareSection = !_isSharedFile ? `
+      <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-align:left;">
+          Compartir con otro usuario:
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="driveShareEmail" type="email" class="client-id-input"
+            style="margin:0;flex:1;" placeholder="correo@gmail.com">
+          <button class="btn-primary" style="flex-shrink:0;padding:8px 14px;font-size:13px;"
+            onclick="DriveSync._doShare()">Compartir</button>
+        </div>
+        <div id="driveShareResult" style="font-size:11px;margin-top:6px;min-height:16px;text-align:left;"></div>
+      </div>` : '';
+
     body.innerHTML = `
       <div class="drive-account-info">
         <div class="drive-account-avatar">${initials}</div>
@@ -5295,10 +5380,28 @@ const DriveSync = (() => {
         📁 ${FOLDER_NAME} / <span>${FILE_NAME}</span><br>
         🕐 Última sync: <span>${lastSync}</span>
       </div>
-      <div style="display:flex;gap:10px;flex-direction:column;margin-top:20px;">
+      ${sharedBadge}
+      ${shareSection}
+      <div style="display:flex;gap:10px;flex-direction:column;margin-top:16px;">
         <button class="btn-primary" onclick="DriveSync._forceSyncNow()">🔄 Sincronizar ahora</button>
         <button class="modal-btn-secondary" onclick="DriveSync.signOut()">Desconectar cuenta</button>
       </div>`;
+  }
+
+  async function _doShare() {
+    const email  = document.getElementById('driveShareEmail')?.value || '';
+    const result = document.getElementById('driveShareResult');
+    if (result) result.textContent = 'Compartiendo…';
+    const res = await shareFile(email);
+    if (!result) return;
+    if (res.ok) {
+      result.style.color = '#68d391';
+      result.textContent = `✓ Compartido con ${email.trim()}`;
+      document.getElementById('driveShareEmail').value = '';
+    } else {
+      result.style.color = '#fc8181';
+      result.textContent = '✗ ' + res.msg;
+    }
   }
 
   // ── PUBLIC HELPERS ─────────────────────────────────────────
@@ -5375,8 +5478,8 @@ const DriveSync = (() => {
   }
 
   return {
-    init, signIn, signOut, reconnect, scheduleSave, resolveConflict,
-    _badgeClick, _onClientIdInput, _saveClientIdAndConnect, _resetClientId,
+    init, signIn, signOut, reconnect, scheduleSave, resolveConflict, shareFile,
+    _badgeClick, _doShare, _onClientIdInput, _saveClientIdAndConnect, _resetClientId,
     _forceSyncNow, _renderModalBody
   };
 })();
