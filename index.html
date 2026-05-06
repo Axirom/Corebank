@@ -4958,7 +4958,7 @@ const DriveSync = (() => {
   const STORAGE_KEY_PREV_AUTH = 'finanzas_drive_prev_auth';
   const FILE_NAME   = 'finanzas_data.json';
   const FOLDER_NAME = 'Finanzas App';
-  const SCOPES      = 'https://www.googleapis.com/auth/drive.file';
+  const SCOPES      = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
 
   let _clientId    = localStorage.getItem(STORAGE_KEY_CLIENT_ID) || '';
   let _prevAuth    = localStorage.getItem(STORAGE_KEY_PREV_AUTH) === '1';
@@ -5085,14 +5085,16 @@ const DriveSync = (() => {
   async function _onAuthorized() {
     _setBadge('syncing', 'Sincronizando…');
     try {
-      _fileId = localStorage.getItem('finanzas_drive_file_id') || null;
-      if (_fileId) {
-        // Verify the file still exists
-        try {
-          await gapi.client.drive.files.get({ fileId: _fileId, fields: 'id,name,modifiedTime' });
-        } catch(e) { _fileId = null; }
+      // Always search fresh: own Drive + Shared with me
+      // This ensures Miri finds the shared file even if she had a previous file cached
+      const cachedId = localStorage.getItem('finanzas_drive_file_id') || null;
+      _fileId = null;
+      await _findOrCreateFile();
+
+      // If the file changed (e.g. Miri now found shared file), clear local cache
+      if (cachedId && cachedId !== _fileId) {
+        localStorage.removeItem('finanzas_v2_ts'); // force Drive to win on first load
       }
-      if (!_fileId) await _findOrCreateFile();
 
       // Compare timestamps
       const meta = await gapi.client.drive.files.get({
