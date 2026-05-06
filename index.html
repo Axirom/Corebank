@@ -5189,31 +5189,46 @@ const DriveSync = (() => {
     if (_isSharedFile) return { ok: false, msg: 'Solo el propietario puede compartir el archivo' };
     email = email.trim().toLowerCase();
     if (!email || !email.includes('@')) return { ok: false, msg: 'Email inválido' };
+
+    const headers = {
+      'Authorization': 'Bearer ' + _accessToken,
+      'Content-Type': 'application/json'
+    };
+    const body = JSON.stringify({ type: 'user', role: 'writer', emailAddress: email });
+
     try {
-      // Share the file
-      await gapi.client.drive.permissions.create({
-        fileId: _fileId,
-        sendNotificationEmail: false,
-        resource: { type: 'user', role: 'writer', emailAddress: email }
-      });
-      // Also share the parent folder so they can navigate to it
+      // Share the file itself
+      const fileResp = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${_fileId}/permissions?sendNotificationEmail=false&fields=id`,
+        { method: 'POST', headers, body }
+      );
+      const fileData = await fileResp.json();
+      console.log('[Drive] share file response:', fileResp.status, fileData);
+      if (!fileResp.ok) {
+        return { ok: false, msg: fileData.error?.message || `Error ${fileResp.status}` };
+      }
+
+      // Share the parent folder (best-effort)
       try {
-        const meta = await gapi.client.drive.files.get({
-          fileId: _fileId, fields: 'parents'
-        });
-        if (meta.result.parents && meta.result.parents[0]) {
-          await gapi.client.drive.permissions.create({
-            fileId: meta.result.parents[0],
-            sendNotificationEmail: false,
-            resource: { type: 'user', role: 'writer', emailAddress: email }
-          });
+        const metaResp = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${_fileId}?fields=parents`,
+          { headers: { 'Authorization': 'Bearer ' + _accessToken } }
+        );
+        const meta = await metaResp.json();
+        if (meta.parents?.[0]) {
+          const folderResp = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${meta.parents[0]}/permissions?sendNotificationEmail=false&fields=id`,
+            { method: 'POST', headers, body }
+          );
+          const folderData = await folderResp.json();
+          console.log('[Drive] share folder response:', folderResp.status, folderData);
         }
-      } catch(e) { /* folder share is best-effort */ }
+      } catch(e) { console.warn('[Drive] folder share failed (non-critical):', e); }
+
       return { ok: true };
     } catch(e) {
-      console.error('[Drive] shareFile error', e);
-      const msg = e.result?.error?.message || 'Error al compartir';
-      return { ok: false, msg };
+      console.error('[Drive] shareFile error:', e);
+      return { ok: false, msg: e.message || 'Error al compartir' };
     }
   }
 
