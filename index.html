@@ -340,6 +340,16 @@ body.theme-jade::before {
   color: var(--muted);
   border: 1px solid rgba(255,255,255,0.08);
 }
+.sync-badge.drive-reconnect {
+  background: rgba(246,173,85,0.12);
+  color: #f6ad55;
+  border: 1px solid rgba(246,173,85,0.25);
+}
+.sync-badge.drive-needsetup {
+  background: rgba(255,255,255,0.06);
+  color: var(--muted);
+  border: 1px solid rgba(255,255,255,0.1);
+}
 .sync-dot {
   width: 6px; height: 6px;
   border-radius: 50%;
@@ -2357,7 +2367,7 @@ body:not(.values-hidden) .account-rate-inline {
 
   <!-- SYNC BADGE -->
   <div class="sync-bar">
-    <div class="sync-badge drive-disconnected" id="syncBadge" onclick="openDriveModal()">
+    <div class="sync-badge drive-disconnected" id="syncBadge" onclick="DriveSync._badgeClick()">
       <div class="sync-dot" id="syncDot"></div>
       <span id="syncLabel">Drive</span>
     </div>
@@ -4945,18 +4955,20 @@ function saveState() {
 const DriveSync = (() => {
   // ── CONFIG ── Fill in your Google Cloud OAuth Client ID:
   const STORAGE_KEY_CLIENT_ID = 'finanzas_drive_client_id';
+  const STORAGE_KEY_PREV_AUTH = 'finanzas_drive_prev_auth';
   const FILE_NAME   = 'finanzas_data.json';
   const FOLDER_NAME = 'Finanzas App';
   const SCOPES      = 'https://www.googleapis.com/auth/drive.file';
 
   let _clientId    = localStorage.getItem(STORAGE_KEY_CLIENT_ID) || '';
+  let _prevAuth    = localStorage.getItem(STORAGE_KEY_PREV_AUTH) === '1';
   let _accessToken = null;
   let _fileId      = null;
   let _tokenClient = null;
   let _gapiReady   = false;
   let _saveTimer   = null;
-  let _userInfo    = null;      // { name, email }
-  let _lastDriveTs = null;      // ISO timestamp of last Drive save
+  let _userInfo    = null;
+  let _lastDriveTs = null;
 
   // ── UI ─────────────────────────────────────────────────────
   function _setBadge(status, label) {
@@ -5007,8 +5019,18 @@ const DriveSync = (() => {
       scope: SCOPES,
       prompt: '',
       callback: async (resp) => {
-        if (resp.error) { _setBadge('error', 'Error auth'); return; }
+    if (resp.error) {
+        // If error is interaction_required, show reconnect badge (iOS popup was blocked)
+        if (resp.error === 'interaction_required' || resp.error === 'access_denied') {
+          _setBadge('reconnect', 'Reconectar');
+        } else {
+          _setBadge('error', 'Error auth');
+        }
+        return;
+      }
         _accessToken = resp.access_token;
+        _prevAuth = true;
+        localStorage.setItem(STORAGE_KEY_PREV_AUTH, '1');
         gapi.client.setToken({ access_token: _accessToken });
         await _fetchUserInfo();
         await _onAuthorized();
@@ -5048,8 +5070,10 @@ const DriveSync = (() => {
     _fileId      = null;
     _userInfo    = null;
     _lastDriveTs = null;
+    _prevAuth    = false;
     localStorage.removeItem('finanzas_drive_file_id');
-    _setBadge('disconnected', 'Drive');
+    localStorage.removeItem(STORAGE_KEY_PREV_AUTH);
+    _setBadge('needsetup', 'Drive');
     openDriveModal();
   }
 
@@ -5199,8 +5223,19 @@ const DriveSync = (() => {
     const body = document.getElementById('driveModalBody');
     if (!body) return;
     if (!_clientId) { _renderModalSetup(body); return; }
+    if (!_accessToken && _prevAuth) { _renderModalReconnect(body); return; }
     if (!_accessToken) { _renderModalDisconnected(body); return; }
     _renderModalConnected(body);
+  }
+
+  function _renderModalReconnect(body) {
+    body = body || document.getElementById('driveModalBody');
+    body.innerHTML = `
+      <div class="drive-logo">🔄</div>
+      <p style="font-size:14px;color:var(--text);margin:0 0 6px;">Sesión caducada</p>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 20px;">Tus datos locales están seguros. Reconecta para volver a sincronizar con Drive.</p>
+      <button class="btn-primary" onclick="closeDriveModal();DriveSync.reconnect();" style="margin-bottom:10px;">Reconectar con Google</button>
+      <button class="modal-btn-secondary" onclick="DriveSync.signOut()">Desconectar cuenta</button>`;
   }
 
   function _renderModalSetup(body) {
@@ -5296,26 +5331,52 @@ const DriveSync = (() => {
 
   // ── INIT (called after unlock) ─────────────────────────────
   async function init() {
-    if (!_clientId) { _setBadge('disconnected', 'Drive'); return; }
+    if (!_clientId) {
+      _setBadge('needsetup', 'Drive');
+      return;
+    }
+    if (!_prevAuth) {
+      // First time — never connected yet, just show the badge passively
+      _setBadge('disconnected', 'Drive');
+      return;
+    }
+    // Previously connected — show reconnect badge (requires user tap on iOS)
+    _setBadge('reconnect', 'Reconectar');
+    // Pre-load gapi in background so it's ready when user taps
+    try { await _loadGapi(); } catch(e) { /* will retry on tap */ }
+  }
+
+  // Called when user taps the reconnect badge or Connect button (user gesture → popup allowed)
+  async function reconnect() {
+    if (!_clientId) { openDriveModal(); return; }
     _setBadge('syncing', 'Conectando…');
     try {
       await _loadGapi();
-      if (!_initTokenClient()) { _setBadge('disconnected', 'Drive'); return; }
-      // Silent token request (no consent screen if already authorized)
+      if (!_initTokenClient()) { _setBadge('error', 'Config error'); return; }
       _tokenClient.requestAccessToken({ prompt: '' });
     } catch(e) {
-      console.warn('[Drive] init error', e);
-      _setBadge('offline', 'Offline');
+      console.warn('[Drive] reconnect error', e);
+      _setBadge('reconnect', 'Reconectar');
     }
   }
 
   // ── OFFLINE DETECTION ──────────────────────────────────────
-  window.addEventListener('online',  () => { if (_clientId && !_accessToken) init(); });
+  window.addEventListener('online',  () => { if (_clientId && !_accessToken && _prevAuth) _setBadge('reconnect', 'Reconectar'); });
   window.addEventListener('offline', () => _setBadge('offline', 'Offline'));
 
+  function _badgeClick() {
+    const badge = document.getElementById('syncBadge');
+    if (!badge) return;
+    if (badge.classList.contains('drive-reconnect')) {
+      reconnect();
+    } else {
+      openDriveModal();
+    }
+  }
+
   return {
-    init, signIn, signOut, scheduleSave, resolveConflict,
-    _onClientIdInput, _saveClientIdAndConnect, _resetClientId,
+    init, signIn, signOut, reconnect, scheduleSave, resolveConflict,
+    _badgeClick, _onClientIdInput, _saveClientIdAndConnect, _resetClientId,
     _forceSyncNow, _renderModalBody
   };
 })();
