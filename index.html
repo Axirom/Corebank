@@ -4983,38 +4983,7 @@ const DriveSync = (() => {
     lbl.textContent = label;
   }
 
-  // ── GAPI INIT ──────────────────────────────────────────────
-  function _loadGapi() {
-    return new Promise((resolve, reject) => {
-      if (typeof gapi === 'undefined') {
-        // script not loaded yet — retry
-        let attempts = 0;
-        const id = setInterval(() => {
-          if (typeof gapi !== 'undefined') { clearInterval(id); _initGapi().then(resolve).catch(reject); }
-          if (++attempts > 40) { clearInterval(id); reject(new Error('gapi timeout')); }
-        }, 250);
-      } else {
-        _initGapi().then(resolve).catch(reject);
-      }
-    });
-  }
-
-  function _initGapi() {
-    return new Promise((resolve, reject) => {
-      gapi.load('client', async () => {
-        try {
-          await gapi.client.init({
-            discoveryDocs: [
-            'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest',
-          ],
-          });
-          _gapiReady = true;
-          resolve();
-        } catch(e) { reject(e); }
-      });
-    });
-  }
-
+  // ── WAIT FOR GIS (Google Identity Services) ───────────────
   function _initTokenClient() {
     if (!_clientId) return false;
     if (typeof google === 'undefined' || !google.accounts) return false;
@@ -5035,7 +5004,6 @@ const DriveSync = (() => {
         _accessToken = resp.access_token;
         _prevAuth = true;
         localStorage.setItem(STORAGE_KEY_PREV_AUTH, '1');
-        gapi.client.setToken({ access_token: _accessToken });
         await _fetchUserInfo();
         await _onAuthorized();
       }
@@ -5056,7 +5024,7 @@ const DriveSync = (() => {
   async function signIn() {
     if (!_clientId) { openDriveModal(); return; }
     try {
-      await _loadGapi();
+      await _waitForGis();
       if (!_initTokenClient()) { _setBadge('error', 'Config error'); return; }
       _setBadge('syncing', 'Conectando…');
       _tokenClient.requestAccessToken({ prompt: 'consent' });
@@ -5097,10 +5065,8 @@ const DriveSync = (() => {
       }
 
       // Compare timestamps
-      const meta = await gapi.client.drive.files.get({
-        fileId: _fileId, fields: 'modifiedTime'
-      });
-      const driveTs = new Date(meta.result.modifiedTime).getTime();
+      const meta = await _driveRequest('files/' + _fileId + '?fields=modifiedTime');
+      const driveTs = new Date(meta.modifiedTime).getTime();
       const localTs = parseInt(localStorage.getItem('finanzas_v2_ts') || '0', 10);
       _lastDriveTs = driveTs;
 
@@ -5128,40 +5094,31 @@ const DriveSync = (() => {
     _isSharedFile = false;
     _fileOwner    = null;
 
-    // 1. Search in own Drive (inside the app folder)
-    const folderSearch = await gapi.client.drive.files.list({
-      q: `name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: 'files(id)', spaces: 'drive'
-    });
+    // 1. Search in own Drive
+    const folderQ = encodeURIComponent(`name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+    const folderSearch = await _driveRequest(`files?q=${folderQ}&fields=files(id)&spaces=drive`);
 
     let folderId = null;
-    if (folderSearch.result.files.length > 0) {
-      folderId = folderSearch.result.files[0].id;
-      const fileSearch = await gapi.client.drive.files.list({
-        q: `name='${FILE_NAME}' and '${folderId}' in parents and trashed=false`,
-        fields: 'files(id,modifiedTime,owners)', spaces: 'drive'
-      });
-      if (fileSearch.result.files.length > 0) {
-        _fileId = fileSearch.result.files[0].id;
+    if (folderSearch.files?.length > 0) {
+      folderId = folderSearch.files[0].id;
+      const fileQ = encodeURIComponent(`name='${FILE_NAME}' and '${folderId}' in parents and trashed=false`);
+      const fileSearch = await _driveRequest(`files?q=${fileQ}&fields=files(id,owners)&spaces=drive`);
+      if (fileSearch.files?.length > 0) {
+        _fileId = fileSearch.files[0].id;
         localStorage.setItem('finanzas_drive_file_id', _fileId);
         return; // Found in own Drive
       }
     }
 
     // 2. Search in "Shared with me"
-    const sharedSearch = await gapi.client.drive.files.list({
-      q: `name='${FILE_NAME}' and sharedWithMe=true and trashed=false`,
-      fields: 'files(id,modifiedTime,owners)', spaces: 'drive'
-    });
-    if (sharedSearch.result.files.length > 0) {
-      const sharedFile = sharedSearch.result.files[0];
-      _fileId       = sharedFile.id;
+    const sharedQ = encodeURIComponent(`name='${FILE_NAME}' and sharedWithMe=true and trashed=false`);
+    const sharedSearch = await _driveRequest(`files?q=${sharedQ}&fields=files(id,owners)&spaces=drive`);
+    if (sharedSearch.files?.length > 0) {
+      const f = sharedSearch.files[0];
+      _fileId       = f.id;
       _isSharedFile = true;
-      if (sharedFile.owners && sharedFile.owners.length > 0) {
-        _fileOwner = {
-          name:  sharedFile.owners[0].displayName,
-          email: sharedFile.owners[0].emailAddress
-        };
+      if (f.owners?.[0]) {
+        _fileOwner = { name: f.owners[0].displayName, email: f.owners[0].emailAddress };
       }
       localStorage.setItem('finanzas_drive_file_id', _fileId);
       return; // Found in shared files
@@ -5169,17 +5126,17 @@ const DriveSync = (() => {
 
     // 3. Not found anywhere → create folder + file in own Drive
     if (!folderId) {
-      const folderCreate = await gapi.client.drive.files.create({
-        resource: { name: FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' },
-        fields: 'id'
+      const folder = await _driveRequest('files', {
+        method: 'POST',
+        body: JSON.stringify({ name: FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
       });
-      folderId = folderCreate.result.id;
+      folderId = folder.id;
     }
-    const fileCreate = await gapi.client.drive.files.create({
-      resource: { name: FILE_NAME, parents: [folderId] },
-      fields: 'id'
+    const file = await _driveRequest('files', {
+      method: 'POST',
+      body: JSON.stringify({ name: FILE_NAME, parents: [folderId] })
     });
-    _fileId = fileCreate.result.id;
+    _fileId = file.id;
     localStorage.setItem('finanzas_drive_file_id', _fileId);
   }
 
@@ -5235,10 +5192,14 @@ const DriveSync = (() => {
   // ── READ FROM DRIVE ────────────────────────────────────────
   async function loadFromDrive() {
     if (!_fileId || !_accessToken) return null;
-    const resp = await gapi.client.drive.files.get({
-      fileId: _fileId, alt: 'media'
-    });
-    return resp.result;
+    const resp = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${_fileId}?alt=media`,
+      { headers: { 'Authorization': 'Bearer ' + _accessToken } }
+    );
+    if (!resp.ok) throw new Error('Drive read failed: ' + resp.status);
+    const text = await resp.text();
+    if (!text || text.trim() === '') return null;
+    return JSON.parse(text);
   }
 
   // ── WRITE TO DRIVE ─────────────────────────────────────────
@@ -5462,8 +5423,8 @@ const DriveSync = (() => {
     }
     // Previously connected — show reconnect badge (requires user tap on iOS)
     _setBadge('reconnect', 'Reconectar');
-    // Pre-load gapi in background so it's ready when user taps
-    try { await _loadGapi(); } catch(e) { /* will retry on tap */ }
+    // Pre-load GIS in background so it's ready when user taps
+    try { await _waitForGis(); } catch(e) { /* will retry on tap */ }
   }
 
   // Called when user taps the reconnect badge or Connect button (user gesture → popup allowed)
@@ -5471,7 +5432,7 @@ const DriveSync = (() => {
     if (!_clientId) { openDriveModal(); return; }
     _setBadge('syncing', 'Conectando…');
     try {
-      await _loadGapi();
+      await _waitForGis();
       if (!_initTokenClient()) { _setBadge('error', 'Config error'); return; }
       _tokenClient.requestAccessToken({ prompt: '' });
     } catch(e) {
