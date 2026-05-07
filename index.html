@@ -4984,6 +4984,35 @@ const DriveSync = (() => {
   }
 
   // ── WAIT FOR GIS (Google Identity Services) ───────────────
+  function _waitForGis() {
+    return new Promise((resolve, reject) => {
+      if (typeof google !== 'undefined' && google.accounts) { resolve(); return; }
+      let attempts = 0;
+      const id = setInterval(() => {
+        if (typeof google !== 'undefined' && google.accounts) { clearInterval(id); resolve(); }
+        if (++attempts > 40) { clearInterval(id); reject(new Error('GIS timeout')); }
+      }, 250);
+    });
+  }
+
+  // ── DRIVE API HELPER (all ops via fetch, no gapi needed) ───
+  async function _driveRequest(path, options = {}) {
+    const url = 'https://www.googleapis.com/drive/v3/' + path;
+    const resp = await fetch(url, {
+      method: options.method || 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + _accessToken,
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.headers || {})
+      },
+      body: options.body || undefined
+    });
+    if (resp.status === 204) return {};
+    const data = await resp.json();
+    if (!resp.ok) throw Object.assign(new Error(data.error?.message || 'Drive API error'), { status: resp.status });
+    return data;
+  }
+
   function _initTokenClient() {
     if (!_clientId) return false;
     if (typeof google === 'undefined' || !google.accounts) return false;
