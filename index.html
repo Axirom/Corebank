@@ -5082,32 +5082,30 @@ const DriveSync = (() => {
   async function _onAuthorized() {
     _setBadge('syncing', 'Sincronizando…');
     try {
-      // Always search fresh: own Drive + Shared with me
-      // This ensures Miri finds the shared file even if she had a previous file cached
-      const cachedId = localStorage.getItem('finanzas_drive_file_id') || null;
       _fileId = null;
       await _findOrCreateFile();
 
-      // If the file changed (e.g. Miri now found shared file), clear local cache
-      if (cachedId && cachedId !== _fileId) {
-        localStorage.removeItem('finanzas_v2_ts'); // force Drive to win on first load
-      }
-
-      // Compare timestamps
+      // Get Drive file timestamp
       const meta = await _driveRequest('files/' + _fileId + '?fields=modifiedTime');
-      const driveTs = new Date(meta.modifiedTime).getTime();
-      const localTs = parseInt(localStorage.getItem('finanzas_v2_ts') || '0', 10);
+      const driveTs = meta.modifiedTime ? new Date(meta.modifiedTime).getTime() : 0;
       _lastDriveTs = driveTs;
 
-      if (driveTs > localTs + 5000) {
-        // Drive is newer → ask user
+      const hasLocalData = !!localStorage.getItem('finanzas_v2');
+      const localTs      = parseInt(localStorage.getItem('finanzas_v2_ts') || '0', 10);
+      const driveIsNewer = driveTs > localTs + 5000;
+
+      if (!hasLocalData || _isSharedFile) {
+        // New device or shared file → auto-load from Drive silently
+        await _loadAndApplyFromDrive();
+      } else if (driveIsNewer) {
+        // Both sides have data and Drive is newer → ask user
         const driveDate = new Date(driveTs).toLocaleString('es-ES');
-        const localDate = localTs ? new Date(localTs).toLocaleString('es-ES') : 'desconocida';
+        const localDate = new Date(localTs).toLocaleString('es-ES');
         document.getElementById('conflictDetail').textContent =
           `Drive: ${driveDate} · Local: ${localDate}`;
         document.getElementById('modalDriveConflict').style.display = 'flex';
       } else {
-        // Local is up to date or newer → push to Drive
+        // Local is up to date → push to Drive
         await _saveNow();
         _setBadge('synced', 'Sincronizado');
         _renderModalConnected();
@@ -5117,6 +5115,26 @@ const DriveSync = (() => {
       _setBadge('error', 'Error sync');
     }
   }
+
+  async function _loadAndApplyFromDrive() {
+    try {
+      const driveData = await loadFromDrive();
+      if (driveData) {
+        state = migrateState(driveData);
+        localStorage.setItem('finanzas_v2', JSON.stringify(state));
+        localStorage.setItem('finanzas_v2_ts', (_lastDriveTs || Date.now()).toString());
+        renderAll();
+        if (typeof renderGlobalPatrimonyChart === 'function') renderGlobalPatrimonyChart();
+        showToast('Datos cargados desde Drive ✓', 'success');
+      }
+      _setBadge('synced', 'Sincronizado');
+      _renderModalConnected();
+    } catch(e) {
+      console.error('[Drive] _loadAndApplyFromDrive error', e);
+      _setBadge('error', 'Error al cargar');
+    }
+  }
+
 
   // ── FIND OR CREATE FILE ────────────────────────────────────
   async function _findOrCreateFile() {
@@ -5268,24 +5286,12 @@ const DriveSync = (() => {
   async function resolveConflict(choice) {
     document.getElementById('modalDriveConflict').style.display = 'none';
     if (choice === 'drive') {
-      _setBadge('syncing', 'Cargando…');
-      try {
-        const driveData = await loadFromDrive();
-        if (driveData) {
-          state = migrateState(typeof driveData === 'string' ? JSON.parse(driveData) : driveData);
-          localStorage.setItem('finanzas_v2', JSON.stringify(state));
-          localStorage.setItem('finanzas_v2_ts', _lastDriveTs.toString());
-          renderAll();
-          if (typeof renderGlobalPatrimonyChart === 'function') renderGlobalPatrimonyChart();
-          showToast('Datos cargados desde Drive ✓', 'success');
-        }
-      } catch(e) { _setBadge('error', 'Error al cargar'); return; }
+      await _loadAndApplyFromDrive();
     } else {
-      // Keep local, push to Drive
       await _saveNow();
+      _setBadge('synced', 'Sincronizado');
+      _renderModalConnected();
     }
-    _setBadge('synced', 'Sincronizado');
-    _renderModalConnected();
   }
 
   // ── MODAL RENDER ───────────────────────────────────────────
