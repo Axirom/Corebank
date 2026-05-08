@@ -5397,8 +5397,94 @@ const DriveSync = (() => {
       ${shareSection}
       <div style="display:flex;gap:10px;flex-direction:column;margin-top:16px;">
         <button class="btn-primary" onclick="DriveSync._forceSyncNow()">🔄 Sincronizar ahora</button>
+        <button class="modal-btn-secondary" onclick="DriveSync._showFileSelector()">📂 Cambiar archivo de datos</button>
         <button class="modal-btn-secondary" onclick="DriveSync.signOut()">Desconectar cuenta</button>
       </div>`;
+  }
+
+  async function _showFileSelector() {
+    const body = document.getElementById('driveModalBody');
+    body.innerHTML = `<div style="text-align:center;padding:20px 0;color:var(--muted);font-size:13px;">🔍 Buscando archivos…</div>`;
+
+    try {
+      // Search own files
+      const ownQ  = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`);
+      const ownR  = await _driveRequest(`files?q=${ownQ}&fields=files(id,modifiedTime,owners)&spaces=drive`);
+      // Search shared files
+      const shrQ  = encodeURIComponent(`name='${FILE_NAME}' and sharedWithMe=true and trashed=false`);
+      const shrR  = await _driveRequest(`files?q=${shrQ}&fields=files(id,modifiedTime,owners)&spaces=drive`);
+
+      // Merge and deduplicate by id
+      const seen = new Set();
+      const files = [...(ownR.files || []), ...(shrR.files || [])].filter(f => {
+        if (seen.has(f.id)) return false;
+        seen.add(f.id); return true;
+      });
+
+      if (files.length === 0) {
+        body.innerHTML = `
+          <p style="font-size:13px;color:var(--muted);text-align:center;margin:20px 0;">
+            No se encontraron archivos accesibles.
+          </p>
+          <button class="modal-btn-secondary" onclick="DriveSync._renderModalBody()">← Volver</button>`;
+        return;
+      }
+
+      const rows = files.map(f => {
+        const owner   = f.owners?.[0];
+        const isMe    = owner?.me === true;
+        const ownerTx = isMe ? 'Mío' : (owner?.displayName || owner?.emailAddress || 'Compartido');
+        const date    = new Date(f.modifiedTime).toLocaleString('es-ES', { dateStyle:'short', timeStyle:'short' });
+        const active  = f.id === _fileId;
+        return `
+          <div style="background:var(--surface2);border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};
+               border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:${active?'default':'pointer'};
+               opacity:1;" onclick="${active ? '' : `DriveSync._selectFile('${f.id}')`}">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="font-size:13px;font-weight:600;color:var(--text);">
+                  ${active ? '✓ ' : ''}${FILE_NAME}
+                </div>
+                <div style="font-size:11px;color:var(--muted);margin-top:2px;">
+                  👤 ${ownerTx} · 🕐 ${date}
+                </div>
+              </div>
+              ${active
+                ? '<span style="font-size:11px;color:var(--accent);font-weight:600;">Activo</span>'
+                : '<span style="font-size:11px;color:var(--muted);">Usar este →</span>'}
+            </div>
+          </div>`;
+      }).join('');
+
+      body.innerHTML = `
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px;text-align:left;">
+          Selecciona el archivo que quieres usar como fuente de datos:
+        </p>
+        ${rows}
+        <button class="modal-btn-secondary" style="margin-top:8px;" onclick="DriveSync._renderModalBody()">← Volver</button>`;
+
+    } catch(e) {
+      console.error('[Drive] _showFileSelector error', e);
+      body.innerHTML = `
+        <p style="color:#fc8181;font-size:13px;text-align:center;">Error al buscar archivos</p>
+        <button class="modal-btn-secondary" onclick="DriveSync._renderModalBody()">← Volver</button>`;
+    }
+  }
+
+  async function _selectFile(fileId) {
+    _fileId = fileId;
+    localStorage.setItem('finanzas_drive_file_id', fileId);
+    // Get owner info for the selected file
+    try {
+      const meta = await _driveRequest(`files/${fileId}?fields=modifiedTime,owners`);
+      _lastDriveTs = meta.modifiedTime ? new Date(meta.modifiedTime).getTime() : 0;
+      const owner = meta.owners?.[0];
+      _isSharedFile = owner?.me === false;
+      _fileOwner    = _isSharedFile ? { name: owner?.displayName, email: owner?.emailAddress } : null;
+    } catch(e) { /* non-critical */ }
+
+    closeDriveModal();
+    await _loadAndApplyFromDrive();
   }
 
   async function _doShare() {
@@ -5492,7 +5578,8 @@ const DriveSync = (() => {
 
   return {
     init, signIn, signOut, reconnect, scheduleSave, resolveConflict, shareFile,
-    _badgeClick, _doShare, _onClientIdInput, _saveClientIdAndConnect, _resetClientId,
+    _badgeClick, _doShare, _showFileSelector, _selectFile,
+    _onClientIdInput, _saveClientIdAndConnect, _resetClientId,
     _forceSyncNow, _renderModalBody
   };
 })();
