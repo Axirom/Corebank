@@ -5159,7 +5159,7 @@ const DriveSync = (() => {
 
     // 2. Search in "Shared with me"
     const sharedQ = encodeURIComponent(`name='${FILE_NAME}' and sharedWithMe=true and trashed=false`);
-    const sharedSearch = await _driveRequest(`files?q=${sharedQ}&fields=files(id,owners)&spaces=drive`);
+    const sharedSearch = await _driveRequest(`files?q=${sharedQ}&fields=files(id,owners)&corpora=user`);
     if (sharedSearch.files?.length > 0) {
       const f = sharedSearch.files[0];
       _fileId       = f.id;
@@ -5410,9 +5410,9 @@ const DriveSync = (() => {
       // Search own files
       const ownQ  = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`);
       const ownR  = await _driveRequest(`files?q=${ownQ}&fields=files(id,modifiedTime,owners)&spaces=drive`);
-      // Search shared files
+      // Search shared files using corpora=user (includes all accessible files, not just My Drive)
       const shrQ  = encodeURIComponent(`name='${FILE_NAME}' and sharedWithMe=true and trashed=false`);
-      const shrR  = await _driveRequest(`files?q=${shrQ}&fields=files(id,modifiedTime,owners)&spaces=drive`);
+      const shrR  = await _driveRequest(`files?q=${shrQ}&fields=files(id,modifiedTime,owners)&corpora=user`);
 
       // Merge and deduplicate by id
       const seen = new Set();
