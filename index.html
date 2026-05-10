@@ -2909,6 +2909,7 @@ body:not(.values-hidden) .account-rate-inline {
     </div>
   </div>
 </div>
+<!-- Hidden file input for native Drive/Files picker — must live in DOM for mobile gesture chain -->
 
 <!-- ==================== MODAL: DRIVE CONFLICT ==================== -->
 <div class="modal-overlay" id="modalDriveConflict">
@@ -3984,6 +3985,15 @@ body:not(.values-hidden) .account-rate-inline {
     </button>
     <input type="file" id="importInput" accept=".json" style="display:none" onchange="importBackup(event)">
 
+    <button class="settings-btn" id="driveLoadFileBtn" onclick="document.getElementById('driveFileInput').click()" style="display:none;">
+      <span class="settings-btn-icon">☁️</span>
+      <div class="settings-btn-info">
+        <div class="settings-btn-label">Cargar archivo de Drive</div>
+        <div class="settings-btn-desc">Abre un archivo finanzas_data.json desde Google Drive o Archivos</div>
+      </div>
+    </button>
+    <input type="file" id="driveFileInput" accept=".json,application/json" style="display:none" onchange="DriveSync._onNativeFileSelected(this)">
+
     <button class="settings-btn" id="settings-import-profile-btn" onclick="document.getElementById('importProfileInput').click()" style="display:none;">
       <span class="settings-btn-icon">👤</span>
       <div class="settings-btn-info">
@@ -4981,6 +4991,9 @@ const DriveSync = (() => {
     badge.className = 'sync-badge drive-' + status;
     dot.className   = 'sync-dot' + (status === 'syncing' ? ' spinning' : '');
     lbl.textContent = label;
+    // Show Drive file loader in Settings only when connected
+    const btn = document.getElementById('driveLoadFileBtn');
+    if (btn) btn.style.display = (status === 'synced' || status === 'syncing') ? '' : 'none';
   }
 
   // ── WAIT FOR GIS (Google Identity Services) ───────────────
@@ -5158,7 +5171,8 @@ const DriveSync = (() => {
     }
 
     // 2. Search in "Shared with me"
-    const sharedQ = encodeURIComponent(`name='${FILE_NAME}' and sharedWithMe=true and trashed=false`);
+    // Single query with corpora=user finds both own and shared files
+    const sharedQ = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`);
     const sharedSearch = await _driveRequest(`files?q=${sharedQ}&fields=files(id,owners)&corpora=user`);
     if (sharedSearch.files?.length > 0) {
       const f = sharedSearch.files[0];
@@ -5397,9 +5411,42 @@ const DriveSync = (() => {
       ${shareSection}
       <div style="display:flex;gap:10px;flex-direction:column;margin-top:16px;">
         <button class="btn-primary" onclick="DriveSync._forceSyncNow()">🔄 Sincronizar ahora</button>
-        <button class="modal-btn-secondary" onclick="DriveSync._showFileSelector()">📂 Cambiar archivo de datos</button>
+        <button class="modal-btn-secondary" onclick="DriveSync._showFileSelector()">🔍 Buscar archivos automáticamente</button>
         <button class="modal-btn-secondary" onclick="DriveSync.signOut()">Desconectar cuenta</button>
       </div>`;
+  }
+
+  // ── NATIVE FILE PICKER ─────────────────────────────────────
+  async function _onNativeFileSelected(input) {
+    const file = input?.files?.[0];
+    // Reset input so same file can be selected again if needed
+    input.value = '';
+    if (!file) return;
+    closeDriveModal();
+    _setBadge('syncing', 'Cargando…');
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!data.accounts && !data.transactions) {
+        showToast('El archivo no parece ser de esta app', 'error');
+        _setBadge(_accessToken ? 'synced' : 'reconnect', _accessToken ? 'Sincronizado' : 'Reconectar');
+        return;
+      }
+      state = migrateState(data);
+      localStorage.setItem('finanzas_v2', JSON.stringify(state));
+      localStorage.setItem('finanzas_v2_ts', Date.now().toString());
+      renderAll();
+      if (typeof renderGlobalPatrimonyChart === 'function') renderGlobalPatrimonyChart();
+      showToast('Datos cargados correctamente ✓', 'success');
+      if (_accessToken) {
+        try { await _findOrCreateFile(); } catch(e) { /* non-critical */ }
+      }
+      _setBadge('synced', 'Sincronizado');
+    } catch(err) {
+      console.error('[Drive] file load error', err);
+      showToast('Error al leer el archivo', 'error');
+      _setBadge(_accessToken ? 'synced' : 'reconnect', _accessToken ? 'Sincronizado' : 'Reconectar');
+    }
   }
 
   async function _showFileSelector() {
@@ -5407,12 +5454,11 @@ const DriveSync = (() => {
     body.innerHTML = `<div style="text-align:center;padding:20px 0;color:var(--muted);font-size:13px;">🔍 Buscando archivos…</div>`;
 
     try {
-      // Search own files
-      const ownQ  = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`);
-      const ownR  = await _driveRequest(`files?q=${ownQ}&fields=files(id,modifiedTime,owners)&spaces=drive`);
-      // Search shared files using corpora=user (includes all accessible files, not just My Drive)
-      const shrQ  = encodeURIComponent(`name='${FILE_NAME}' and sharedWithMe=true and trashed=false`);
-      const shrR  = await _driveRequest(`files?q=${shrQ}&fields=files(id,modifiedTime,owners)&corpora=user`);
+      // Single query with corpora=user returns both owned and shared files
+      const allQ = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`);
+      const allR = await _driveRequest(`files?q=${allQ}&fields=files(id,modifiedTime,owners)&corpora=user`);
+      const ownR = { files: allR.files || [] };
+      const shrR = { files: [] };
 
       // Merge and deduplicate by id
       const seen = new Set();
@@ -5578,7 +5624,7 @@ const DriveSync = (() => {
 
   return {
     init, signIn, signOut, reconnect, scheduleSave, resolveConflict, shareFile,
-    _badgeClick, _doShare, _showFileSelector, _selectFile,
+    _badgeClick, _doShare, _onNativeFileSelected, _showFileSelector, _selectFile,
     _onClientIdInput, _saveClientIdAndConnect, _resetClientId,
     _forceSyncNow, _renderModalBody
   };
