@@ -4978,7 +4978,8 @@ const DriveSync = (() => {
   let _gapiReady   = false;
   let _saveTimer   = null;
   let _userInfo    = null;
-  let _lastDriveTs = null;
+  let _lastDriveTs    = null;
+  let _tokenTimestamp = 0;     // ms timestamp when access token was received
   let _isSharedFile = false;   // true if file belongs to another user
   let _fileOwner    = null;    // { name, email } of file owner when shared
 
@@ -5043,7 +5044,8 @@ const DriveSync = (() => {
         }
         return;
       }
-        _accessToken = resp.access_token;
+        _accessToken    = resp.access_token;
+        _tokenTimestamp = Date.now();
         _prevAuth = true;
         localStorage.setItem(STORAGE_KEY_PREV_AUTH, '1');
         await _fetchUserInfo();
@@ -5588,10 +5590,21 @@ const DriveSync = (() => {
       _setBadge('disconnected', 'Drive');
       return;
     }
-    // Previously connected — show reconnect badge (requires user tap on iOS)
-    _setBadge('reconnect', 'Reconectar');
-    // Pre-load GIS in background so it's ready when user taps
-    try { await _waitForGis(); } catch(e) { /* will retry on tap */ }
+    // Previously connected → attempt silent reconnect automatically.
+    // If Google session cookie is still valid, the callback fires with a
+    // token immediately (no popup, no user tap needed).
+    // If interaction is required (session expired) the callback fires with
+    // error 'interaction_required' → we fall back to the Reconectar badge.
+    _setBadge('syncing', 'Conectando…');
+    try {
+      await _waitForGis();
+      if (!_initTokenClient()) { _setBadge('reconnect', 'Reconectar'); return; }
+      _tokenClient.requestAccessToken({ prompt: '' });
+      // → success  : _onAuthorized() auto-loads Drive data
+      // → failure  : callback sets badge to 'reconnect'
+    } catch(e) {
+      _setBadge('reconnect', 'Reconectar');
+    }
   }
 
   // Called when user taps the reconnect badge or Connect button (user gesture → popup allowed)
@@ -5611,6 +5624,27 @@ const DriveSync = (() => {
   // ── OFFLINE DETECTION ──────────────────────────────────────
   window.addEventListener('online',  () => { if (_clientId && !_accessToken && _prevAuth) _setBadge('reconnect', 'Reconectar'); });
   window.addEventListener('offline', () => _setBadge('offline', 'Offline'));
+
+  // ── FOREGROUND RECONNECT ────────────────────────────────────
+  // When the PWA comes back to the foreground (tab/app switch), re-check the
+  // token. If it's missing or older than 50 min (tokens last ~60 min) try a
+  // silent refresh so Miri always sees fresh data without tapping anything.
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!_clientId || !_prevAuth) return;
+    const TOKEN_TTL = 50 * 60 * 1000; // 50 minutes
+    const tokenStale = !_tokenTimestamp || (Date.now() - _tokenTimestamp > TOKEN_TTL);
+    if (!_accessToken || tokenStale) {
+      _accessToken    = null;
+      _tokenTimestamp = 0;
+      _setBadge('syncing', 'Conectando…');
+      try {
+        await _waitForGis();
+        if (!_initTokenClient()) { _setBadge('reconnect', 'Reconectar'); return; }
+        _tokenClient.requestAccessToken({ prompt: '' });
+      } catch(e) { _setBadge('reconnect', 'Reconectar'); }
+    }
+  });
 
   function _badgeClick() {
     const badge = document.getElementById('syncBadge');
