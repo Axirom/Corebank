@@ -4980,6 +4980,7 @@ const DriveSync = (() => {
   let _userInfo    = null;
   let _lastDriveTs    = null;
   let _tokenTimestamp = 0;     // ms timestamp when access token was received
+  let _pollTimer      = null;  // setInterval handle for background Drive polling
   let _isSharedFile = false;   // true if file belongs to another user
   let _fileOwner    = null;    // { name, email } of file owner when shared
 
@@ -5079,14 +5080,16 @@ const DriveSync = (() => {
   }
 
   function signOut() {
+    _stopPolling();
     if (_accessToken && typeof google !== 'undefined') {
       google.accounts.oauth2.revoke(_accessToken, () => {});
     }
-    _accessToken = null;
-    _fileId      = null;
-    _userInfo    = null;
-    _lastDriveTs = null;
-    _prevAuth    = false;
+    _accessToken    = null;
+    _tokenTimestamp = 0;
+    _fileId         = null;
+    _userInfo       = null;
+    _lastDriveTs    = null;
+    _prevAuth       = false;
     localStorage.removeItem('finanzas_drive_file_id');
     localStorage.removeItem(STORAGE_KEY_PREV_AUTH);
     _setBadge('needsetup', 'Drive');
@@ -5109,22 +5112,17 @@ const DriveSync = (() => {
       const localTs      = parseInt(localStorage.getItem('finanzas_v2_ts') || '0', 10);
       const driveIsNewer = driveTs > localTs + 5000;
 
-      if (!hasLocalData || _isSharedFile) {
-        // New device or shared file → auto-load from Drive silently
+      if (!hasLocalData || _isSharedFile || driveIsNewer) {
+        // No local data, shared file, or Drive has newer changes → load from Drive
         await _loadAndApplyFromDrive();
-      } else if (driveIsNewer) {
-        // Both sides have data and Drive is newer → ask user
-        const driveDate = new Date(driveTs).toLocaleString('es-ES');
-        const localDate = new Date(localTs).toLocaleString('es-ES');
-        document.getElementById('conflictDetail').textContent =
-          `Drive: ${driveDate} · Local: ${localDate}`;
-        document.getElementById('modalDriveConflict').style.display = 'flex';
       } else {
         // Local is up to date → push to Drive
         await _saveNow();
         _setBadge('synced', 'Sincronizado');
         _renderModalConnected();
       }
+      // Start periodic sync polling now that we're authenticated
+      _startPolling();
     } catch(e) {
       console.error('[Drive] _onAuthorized error', e);
       _setBadge('error', 'Error sync');
@@ -5619,6 +5617,35 @@ const DriveSync = (() => {
       console.warn('[Drive] reconnect error', e);
       _setBadge('reconnect', 'Reconectar');
     }
+  }
+
+  // ── BACKGROUND POLLING ─────────────────────────────────────
+  // Checks Drive every 3 minutes while the app is open and authenticated.
+  // If Drive is newer than local, loads silently — no user interaction needed.
+  const POLL_INTERVAL = 3 * 60 * 1000; // 3 minutes
+
+  function _startPolling() {
+    _stopPolling(); // clear any existing interval first
+    _pollTimer = setInterval(async () => {
+      if (!_accessToken || !_fileId) return;
+      if (document.visibilityState !== 'visible') return; // skip if app in background
+      try {
+        const meta    = await _driveRequest('files/' + _fileId + '?fields=modifiedTime');
+        const driveTs = meta.modifiedTime ? new Date(meta.modifiedTime).getTime() : 0;
+        const localTs = parseInt(localStorage.getItem('finanzas_v2_ts') || '0', 10);
+        if (driveTs > localTs + 5000) {
+          // Drive has newer data → load silently
+          _lastDriveTs = driveTs;
+          await _loadAndApplyFromDrive();
+        }
+      } catch(e) {
+        console.warn('[Drive] poll error', e);
+      }
+    }, POLL_INTERVAL);
+  }
+
+  function _stopPolling() {
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   }
 
   // ── OFFLINE DETECTION ──────────────────────────────────────
