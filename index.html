@@ -4958,6 +4958,7 @@ function loadState() {
 function saveState() {
   localStorage.setItem('finanzas_v2', JSON.stringify(state));
   localStorage.setItem('finanzas_v2_ts', Date.now().toString());
+  localStorage.setItem('finanzas_v2_dirty', '1'); // mark local as having unsaved changes
   DriveSync.scheduleSave();
 }
 
@@ -5103,25 +5104,23 @@ const DriveSync = (() => {
       _fileId = null;
       await _findOrCreateFile();
 
-      // Get Drive file timestamp
-      const meta = await _driveRequest('files/' + _fileId + '?fields=modifiedTime');
-      const driveTs = meta.modifiedTime ? new Date(meta.modifiedTime).getTime() : 0;
-      _lastDriveTs = driveTs;
-
       const hasLocalData = !!localStorage.getItem('finanzas_v2');
-      const localTs      = parseInt(localStorage.getItem('finanzas_v2_ts') || '0', 10);
-      const driveIsNewer = driveTs > localTs + 5000;
+      const isLocalDirty = localStorage.getItem('finanzas_v2_dirty') === '1';
 
-      if (!hasLocalData || _isSharedFile || driveIsNewer) {
-        // No local data, shared file, or Drive has newer changes → load from Drive
+      if (!hasLocalData) {
+        // Fresh install — nothing local yet, load from Drive
         await _loadAndApplyFromDrive();
-      } else {
-        // Local is up to date → push to Drive
+      } else if (isLocalDirty) {
+        // Local has unsaved changes (made offline or before last upload completed)
+        // Push them to Drive first, then load Drive to pick up any concurrent changes
         await _saveNow();
         _setBadge('synced', 'Sincronizado');
         _renderModalConnected();
+      } else {
+        // Local is clean (no pending changes) — Drive is the source of truth
+        // Always load from Drive so both users see each other's latest data
+        await _loadAndApplyFromDrive();
       }
-      // Start periodic sync polling now that we're authenticated
       _startPolling();
     } catch(e) {
       console.error('[Drive] _onAuthorized error', e);
@@ -5136,6 +5135,7 @@ const DriveSync = (() => {
         state = migrateState(driveData);
         localStorage.setItem('finanzas_v2', JSON.stringify(state));
         localStorage.setItem('finanzas_v2_ts', (_lastDriveTs || Date.now()).toString());
+        localStorage.removeItem('finanzas_v2_dirty'); // Drive data is now local, nothing pending
         renderAll();
         if (typeof renderGlobalPatrimonyChart === 'function') renderGlobalPatrimonyChart();
         showToast('Datos cargados desde Drive ✓', 'success');
@@ -5288,6 +5288,7 @@ const DriveSync = (() => {
       { method: 'PATCH', headers: { Authorization: 'Bearer ' + _accessToken }, body: form }
     );
     _lastDriveTs = Date.now();
+    localStorage.removeItem('finanzas_v2_dirty'); // changes are now in Drive
     _setBadge('synced', 'Sincronizado');
   }
 
