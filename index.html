@@ -5164,7 +5164,17 @@ const DriveSync = (() => {
       const fileQ = encodeURIComponent(`name='${FILE_NAME}' and '${folderId}' in parents and trashed=false`);
       const fileSearch = await _driveRequest(`files?q=${fileQ}&fields=files(id,owners)&spaces=drive`);
       if (fileSearch.files?.length > 0) {
-        _fileId = fileSearch.files[0].id;
+        const f = fileSearch.files[0];
+        _fileId = f.id;
+        // Check ownership — the folder may be shared so the file inside
+        // could belong to another user (e.g. Mario's file on Miri's device)
+        const myEmail = _userInfo?.email?.toLowerCase() || '';
+        if (myEmail && f.owners?.[0]?.emailAddress?.toLowerCase() !== myEmail) {
+          _isSharedFile = true;
+          if (f.owners?.[0]) {
+            _fileOwner = { name: f.owners[0].displayName, email: f.owners[0].emailAddress };
+          }
+        }
         localStorage.setItem('finanzas_drive_file_id', _fileId);
         return; // Found in own Drive
       }
@@ -5434,12 +5444,29 @@ const DriveSync = (() => {
       }
       state = migrateState(data);
       localStorage.setItem('finanzas_v2', JSON.stringify(state));
-      localStorage.setItem('finanzas_v2_ts', Date.now().toString());
       renderAll();
       if (typeof renderGlobalPatrimonyChart === 'function') renderGlobalPatrimonyChart();
       showToast('Datos cargados correctamente ✓', 'success');
       if (_accessToken) {
-        try { await _findOrCreateFile(); } catch(e) { /* non-critical */ }
+        try {
+          await _findOrCreateFile();
+          // Use the Drive file's actual modifiedTime as the local sync timestamp.
+          // This prevents the "driveIsNewer = false" trap where Date.now() would
+          // be more recent than the Drive file's modifiedTime, causing the next
+          // auto-connect to incorrectly skip loading and upload stale local data.
+          try {
+            const meta = await _driveRequest(`files/${_fileId}?fields=modifiedTime`);
+            const driveTs = meta.modifiedTime ? new Date(meta.modifiedTime).getTime() : 0;
+            localStorage.setItem('finanzas_v2_ts', driveTs.toString());
+            _lastDriveTs = driveTs;
+          } catch(e) {
+            // Fallback: use 0 so next auto-connect always loads from Drive
+            localStorage.setItem('finanzas_v2_ts', '0');
+          }
+        } catch(e) { /* non-critical */ }
+      } else {
+        // Not connected to Drive API; use 0 so next connect loads from Drive
+        localStorage.setItem('finanzas_v2_ts', '0');
       }
       _setBadge('synced', 'Sincronizado');
     } catch(err) {
