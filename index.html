@@ -5107,23 +5107,25 @@ const DriveSync = (() => {
       const hasLocalData = !!localStorage.getItem('finanzas_v2');
       const isLocalDirty = localStorage.getItem('finanzas_v2_dirty') === '1';
 
+      // Diagnostic toast — remove once sync is confirmed working
+      showToast(
+        `Drive sync: fileId=${_fileId ? _fileId.slice(-6) : 'null'} shared=${_isSharedFile} dirty=${isLocalDirty} local=${hasLocalData}`,
+        'info', 6000
+      );
+
       if (!hasLocalData) {
-        // Fresh install — nothing local yet, load from Drive
         await _loadAndApplyFromDrive();
       } else if (isLocalDirty) {
-        // Local has unsaved changes (made offline or before last upload completed)
-        // Push them to Drive first, then load Drive to pick up any concurrent changes
         await _saveNow();
         _setBadge('synced', 'Sincronizado');
         _renderModalConnected();
       } else {
-        // Local is clean (no pending changes) — Drive is the source of truth
-        // Always load from Drive so both users see each other's latest data
         await _loadAndApplyFromDrive();
       }
       _startPolling();
     } catch(e) {
       console.error('[Drive] _onAuthorized error', e);
+      showToast(`Drive error: ${e.message}`, 'error', 6000);
       _setBadge('error', 'Error sync');
     }
   }
@@ -5135,15 +5137,18 @@ const DriveSync = (() => {
         state = migrateState(driveData);
         localStorage.setItem('finanzas_v2', JSON.stringify(state));
         localStorage.setItem('finanzas_v2_ts', (_lastDriveTs || Date.now()).toString());
-        localStorage.removeItem('finanzas_v2_dirty'); // Drive data is now local, nothing pending
+        localStorage.removeItem('finanzas_v2_dirty');
         renderAll();
         if (typeof renderGlobalPatrimonyChart === 'function') renderGlobalPatrimonyChart();
         showToast('Datos cargados desde Drive ✓', 'success');
+      } else {
+        showToast('Drive: archivo vacío o sin datos', 'error', 5000);
       }
       _setBadge('synced', 'Sincronizado');
       _renderModalConnected();
     } catch(e) {
       console.error('[Drive] _loadAndApplyFromDrive error', e);
+      showToast(`Error al cargar Drive: ${e.message}`, 'error', 6000);
       _setBadge('error', 'Error al cargar');
     }
   }
@@ -5154,48 +5159,57 @@ const DriveSync = (() => {
     _isSharedFile = false;
     _fileOwner    = null;
 
-    // 1. Search in own Drive
-    const folderQ = encodeURIComponent(`name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-    const folderSearch = await _driveRequest(`files?q=${folderQ}&fields=files(id)&spaces=drive`);
+    const myEmail = (_userInfo?.email || '').toLowerCase();
 
-    let folderId = null;
-    if (folderSearch.files?.length > 0) {
-      folderId = folderSearch.files[0].id;
-      const fileQ = encodeURIComponent(`name='${FILE_NAME}' and '${folderId}' in parents and trashed=false`);
-      const fileSearch = await _driveRequest(`files?q=${fileQ}&fields=files(id,owners)&spaces=drive`);
-      if (fileSearch.files?.length > 0) {
-        const f = fileSearch.files[0];
-        _fileId = f.id;
-        // Check ownership — the folder may be shared so the file inside
-        // could belong to another user (e.g. Mario's file on Miri's device)
-        const myEmail = _userInfo?.email?.toLowerCase() || '';
-        if (myEmail && f.owners?.[0]?.emailAddress?.toLowerCase() !== myEmail) {
-          _isSharedFile = true;
-          if (f.owners?.[0]) {
-            _fileOwner = { name: f.owners[0].displayName, email: f.owners[0].emailAddress };
-          }
-        }
-        localStorage.setItem('finanzas_drive_file_id', _fileId);
-        return; // Found in own Drive
-      }
-    }
+    // Single query covers both My Drive and files shared with this user.
+    // Fetch size + modifiedTime so we can pick the best candidate.
+    const q = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`);
+    const result = await _driveRequest(
+      `files?q=${q}&fields=files(id,owners,modifiedTime,size)&corpora=user`
+    );
 
-    // 2. Search in "Shared with me"
-    // Single query with corpora=user finds both own and shared files
-    const sharedQ = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`);
-    const sharedSearch = await _driveRequest(`files?q=${sharedQ}&fields=files(id,owners)&corpora=user`);
-    if (sharedSearch.files?.length > 0) {
-      const f = sharedSearch.files[0];
-      _fileId       = f.id;
-      _isSharedFile = true;
-      if (f.owners?.[0]) {
-        _fileOwner = { name: f.owners[0].displayName, email: f.owners[0].emailAddress };
-      }
+    const files = result.files || [];
+
+    if (files.length > 0) {
+      // Split into shared files (owned by someone else) and own files
+      const shared = files.filter(f =>
+        myEmail && f.owners?.[0]?.emailAddress?.toLowerCase() !== myEmail
+      );
+      const own = files.filter(f =>
+        !myEmail || f.owners?.[0]?.emailAddress?.toLowerCase() === myEmail
+      );
+
+      // Within each group sort by size desc (more content = likely the real file),
+      // then by modifiedTime desc as tiebreaker.
+      const rank = arr => arr.sort((a, b) => {
+        const ds = parseInt(b.size || '0', 10) - parseInt(a.size || '0', 10);
+        if (ds !== 0) return ds;
+        return new Date(b.modifiedTime) - new Date(a.modifiedTime);
+      });
+
+      // Shared files always win over own files — that's the whole point of sharing.
+      const candidates = [...rank(shared), ...rank(own)];
+      const chosen = candidates[0];
+
+      _fileId = chosen.id;
       localStorage.setItem('finanzas_drive_file_id', _fileId);
-      return; // Found in shared files
+
+      if (myEmail && chosen.owners?.[0]?.emailAddress?.toLowerCase() !== myEmail) {
+        _isSharedFile = true;
+        _fileOwner = chosen.owners[0]
+          ? { name: chosen.owners[0].displayName, email: chosen.owners[0].emailAddress }
+          : null;
+      }
+      return;
     }
 
-    // 3. Not found anywhere → create folder + file in own Drive
+    // Nothing found → create a new folder + file in own Drive
+    const folderQ = encodeURIComponent(
+      `name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
+    );
+    const folderSearch = await _driveRequest(`files?q=${folderQ}&fields=files(id)&spaces=drive`);
+    let folderId = folderSearch.files?.[0]?.id || null;
+
     if (!folderId) {
       const folder = await _driveRequest('files', {
         method: 'POST',
@@ -13958,11 +13972,11 @@ function closeModalOutside(e, id) {
 }
 
 // ===================== TOAST =====================
-function showToast(msg, type = '') {
+function showToast(msg, type = '', duration = 2500) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast show ' + type;
-  setTimeout(() => t.className = 'toast', 2500);
+  setTimeout(() => t.className = 'toast', duration);
 }
 
 // ===================== INIT =====================
