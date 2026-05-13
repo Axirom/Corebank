@@ -4962,6 +4962,15 @@ function saveState() {
   DriveSync.scheduleSave();
 }
 
+// Like saveState but does NOT mark dirty — use for auto-init operations
+// (autoSnapshot, checkPending*) that run on startup before DriveSync connects.
+// These changes will be uploaded naturally by the next scheduleSave/reconnect.
+function saveStateLocal() {
+  localStorage.setItem('finanzas_v2', JSON.stringify(state));
+  localStorage.setItem('finanzas_v2_ts', Date.now().toString());
+  DriveSync.scheduleSave();
+}
+
 // ===================== GOOGLE DRIVE SYNC =====================
 const DriveSync = (() => {
   // ── CONFIG ── Fill in your Google Cloud OAuth Client ID:
@@ -5118,14 +5127,16 @@ const DriveSync = (() => {
         'info', 6000
       );
 
-      if (!hasLocalData) {
+      if (!hasLocalData || _isSharedFile) {
+        // Shared file: always load from Drive — it's the source of truth.
+        // Own file with no local data: load from Drive too.
         await _loadAndApplyFromDrive();
       } else if (isLocalDirty) {
-        // Push local changes to Drive first, then load Drive to ensure
-        // we display whatever is now in Drive (our push + any concurrent changes)
+        // Own file + offline local changes: push then load to reconcile
         await _saveNow();
         await _loadAndApplyFromDrive();
       } else {
+        // Own file, no pending changes: load Drive to get latest
         await _loadAndApplyFromDrive();
       }
       _startPolling();
@@ -13067,7 +13078,7 @@ function autoSnapshot() {
     state.snapshots[person].sort((a, b) => a.month.localeCompare(b.month));
   });
 
-  saveState();
+  saveStateLocal(); // init operation — don't mark dirty
 }
 
 // ===================== CHARTS =====================
