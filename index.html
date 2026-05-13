@@ -4969,7 +4969,9 @@ const DriveSync = (() => {
   const STORAGE_KEY_PREV_AUTH = 'finanzas_drive_prev_auth';
   const FILE_NAME   = 'finanzas_data.json';
   const FOLDER_NAME = 'Finanzas App';
-  const SCOPES      = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
+  const SCOPES      = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
+  const SCOPE_VER   = '2'; // increment whenever SCOPES changes to force re-consent
+  const STORAGE_KEY_SCOPE_VER = 'finanzas_drive_scope_ver';
 
   let _clientId    = localStorage.getItem(STORAGE_KEY_CLIENT_ID) || '';
   let _prevAuth    = localStorage.getItem(STORAGE_KEY_PREV_AUTH) === '1';
@@ -5032,10 +5034,12 @@ const DriveSync = (() => {
   function _initTokenClient() {
     if (!_clientId) return false;
     if (typeof google === 'undefined' || !google.accounts) return false;
+    // Force re-consent if the OAuth scope has changed since last authorization
+    const scopeUpgrade = localStorage.getItem(STORAGE_KEY_SCOPE_VER) !== SCOPE_VER;
     _tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: _clientId,
       scope: SCOPES,
-      prompt: '',
+      prompt: scopeUpgrade ? 'consent' : '',
       callback: async (resp) => {
     if (resp.error) {
         // If error is interaction_required, show reconnect badge (iOS popup was blocked)
@@ -5050,6 +5054,7 @@ const DriveSync = (() => {
         _tokenTimestamp = Date.now();
         _prevAuth = true;
         localStorage.setItem(STORAGE_KEY_PREV_AUTH, '1');
+        localStorage.setItem(STORAGE_KEY_SCOPE_VER, SCOPE_VER); // mark scope as up to date
         await _fetchUserInfo();
         await _onAuthorized();
       }
@@ -5116,9 +5121,10 @@ const DriveSync = (() => {
       if (!hasLocalData) {
         await _loadAndApplyFromDrive();
       } else if (isLocalDirty) {
+        // Push local changes to Drive first, then load Drive to ensure
+        // we display whatever is now in Drive (our push + any concurrent changes)
         await _saveNow();
-        _setBadge('synced', 'Sincronizado');
-        _renderModalConnected();
+        await _loadAndApplyFromDrive();
       } else {
         await _loadAndApplyFromDrive();
       }
