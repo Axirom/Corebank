@@ -5121,12 +5121,6 @@ const DriveSync = (() => {
       const hasLocalData = !!localStorage.getItem('finanzas_v2');
       const isLocalDirty = localStorage.getItem('finanzas_v2_dirty') === '1';
 
-      // Diagnostic toast — remove once sync is confirmed working
-      showToast(
-        `Drive sync: fileId=${_fileId ? _fileId.slice(-6) : 'null'} shared=${_isSharedFile} dirty=${isLocalDirty} local=${hasLocalData}`,
-        'info', 6000
-      );
-
       if (!hasLocalData || _isSharedFile) {
         // Shared file: always load from Drive — it's the source of truth.
         // Own file with no local data: load from Drive too.
@@ -6184,11 +6178,55 @@ function getPersonTotal(person) {
   return state.accounts[person].reduce((s, a) => s + a.balance, 0);
 }
 
+// Returns the reconstructed balance at the end of a given monthKey (YYYY-MM).
+// Uses the same rewind logic as the patrimony chart: start from current balance,
+// undo all transactions that happened after the month end, account by account.
+function getPersonBalanceAtMonth(person, monthKey) {
+  const endDate = monthKey + '-31';
+  const accIds  = new Set(state.accounts[person].map(a => a.id));
+  let total = 0;
+  state.accounts[person].forEach(a => {
+    let bal = a.balance;
+    state.transactions
+      .filter(t => t.date > endDate && t.accountId === a.id)
+      .forEach(t => {
+        if (t.type === 'income')  bal -= t.amount;
+        if (t.type === 'expense') bal += t.amount;
+      });
+    total += bal;
+  });
+  // Deposits are per-person — compute once outside the account loop
+  (state.deposits[person] || []).forEach(dep => {
+    if ((dep.createdAt || '') > endDate) total += dep.amount;
+    if (dep.liquidated && (dep.liquidationDate || '') > endDate) total -= dep.amount;
+  });
+  return Math.max(0, total);
+}
+
 function getCommonBalance() {
   return state.accounts.common.reduce((s, a) => s + a.balance, 0);
 }
 
-// ===================== MONTH PICKER =====================
+// Returns the reconstructed common balance at the end of a given monthKey (YYYY-MM).
+function getCommonBalanceAtMonth(monthKey) {
+  const endDate = monthKey + '-31';
+  const accIds  = new Set(state.accounts.common.map(a => a.id));
+  if (accIds.size === 0) return 0;
+  let total = 0;
+  state.accounts.common.forEach(a => {
+    let bal = a.balance;
+    state.transactions
+      .filter(t => t.date > endDate && t.accountId === a.id)
+      .forEach(t => {
+        if (t.type === 'income')  bal -= t.amount;
+        if (t.type === 'expense') bal += t.amount;
+      });
+    total += bal;
+  });
+  return Math.max(0, total);
+}
+
+
 const selectedMonth = { mario: null, miri: null }; // null = current month
 let pickerPerson = null;
 let pickerYear = new Date().getFullYear();
@@ -6255,7 +6293,10 @@ function getMonthLabelForPerson(person) {
 }
 
 function renderTotals(person) {
-  const total = getPersonTotal(person);
+  const sel = selectedMonth[person];
+  const total = sel
+    ? getPersonBalanceAtMonth(person, `${sel.year}-${String(sel.month + 1).padStart(2, '0')}`)
+    : getPersonTotal(person);
   const commonTotal = getCommonBalance();
   countUp(document.getElementById(person + '-total'), total);
   document.getElementById(person + '-common-balance').textContent = fmtShort(commonTotal);
@@ -6609,49 +6650,23 @@ function renderGlobalPatrimonyChart() {
   }
 
   // Helper: get person personal balance at end of a month (excl. common accounts)
+  // Wrapper for the chart: returns null if the person had no activity yet that month
+  // (so no dot is drawn before data begins). Calculation delegates to global function.
   function snapBalance(person, monthKey) {
-    // Reconstruct from current balance minus transactions after monthKey
-    const endDate  = monthKey + '-31';
-    const accIds   = new Set(state.accounts[person].map(a => a.id));
-    let total = 0;
-    state.accounts[person].forEach(a => {
-      let bal = a.balance;
-      state.transactions
-        .filter(t => t.date > endDate && accIds.has(t.accountId))
-        .forEach(t => {
-          if (t.type === 'income')  bal -= t.amount;
-          if (t.type === 'expense') bal += t.amount;
-        });
-      // deposits
-      (state.deposits[person] || []).forEach(dep => {
-        if ((dep.createdAt || '') > endDate) bal += dep.amount;
-        if (dep.liquidated && (dep.liquidationDate || '') > endDate) bal -= dep.amount;
-      });
-      total += bal;
-    });
-    // Return null if no transactions or accounts exist yet at this point
+    const endDate = monthKey + '-31';
+    const accIds  = new Set(state.accounts[person].map(a => a.id));
     const hasActivity = state.transactions.some(t => t.date <= endDate && accIds.has(t.accountId));
-    return (state.accounts[person].length > 0 && hasActivity) ? Math.max(0, total) : null;
+    if (!state.accounts[person].length || !hasActivity) return null;
+    return getPersonBalanceAtMonth(person, monthKey);
   }
 
-  // Helper: get common balance at end of month
+  // Wrapper for the chart: returns null if common accounts had no activity yet that month.
   function commonBalanceAt(monthKey) {
     const endDate = monthKey + '-31';
     const accIds  = new Set(state.accounts.common.map(a => a.id));
     if (accIds.size === 0) return null;
-    let total = 0;
-    state.accounts.common.forEach(a => {
-      let bal = a.balance;
-      state.transactions
-        .filter(t => t.date > endDate && accIds.has(t.accountId))
-        .forEach(t => {
-          if (t.type === 'income')  bal -= t.amount;
-          if (t.type === 'expense') bal += t.amount;
-        });
-      total += bal;
-    });
     const hasActivity = state.transactions.some(t => t.date <= endDate && accIds.has(t.accountId));
-    return hasActivity ? Math.max(0, total) : null;
+    return hasActivity ? getCommonBalanceAtMonth(monthKey) : null;
   }
 
   // Helper: investment value at end of month
@@ -6839,9 +6854,9 @@ function renderGlobalChartTapSummary(idx, months, series) {
   const total = series.reduce((s, serie) => s + (serie.data[idx] || 0), 0);
   if (total === 0) { sumEl.style.display = 'none'; return; }
 
-  const colors = { 0:'#60c8f5', 1:'#f472b6', 2:'#a78bfa', 3:'#fb923c', 4:'#34d399' };
+  // Use s.color from the series array — already theme-aware, no hardcoded palette needed
   const rows = series
-    .map((s, i) => ({ label: s.label, val: s.data[idx] || 0, color: colors[i] }))
+    .map((s, i) => ({ label: s.label, val: s.data[idx] || 0, color: s.color }))
     .filter(r => r.val > 0)
     .map(r => `<div style="display:flex;justify-content:space-between;gap:8px;padding:2px 0;">
         <span style="display:flex;align-items:center;gap:5px;">
@@ -8034,6 +8049,8 @@ function renderDebts(person) {
     const capitalPct  = d.total > 0 ? Math.min(100, (d.capitalPaid / d.total) * 100) : 0;
     const interestPct = d.totalInterest > 0 ? Math.min(100, (d.interestPaid / d.totalInterest) * 100) : 0;
 
+    const paidSoFar = (d.paidQuotas || 0) + (d.payments ? d.payments.filter(p => p.type === 'quota').length : 0);
+
     const ratesBadges = [
       d.tin != null ? `<span class="debt-rate-badge debt-rate-tin">TIN ${d.tin}%</span>` : '',
       d.tae != null ? `<span class="debt-rate-badge debt-rate-tae">TAE ${d.tae}%</span>` : ''
@@ -8063,7 +8080,10 @@ function renderDebts(person) {
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
               <div class="debt-card-name">${d.name}</div>${ratesBadges}
             </div>
-            ${d.quota > 0 ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;">Cuota: €${fmt(d.quota)}/mes${d.months ? ' · ' + d.months + ' meses' : ''}</div>` : ''}
+            ${d.quota > 0 ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;display:flex;justify-content:space-between;align-items:center;">
+              <span>Cuota: €${fmt(d.quota)}/mes${d.months ? ' · ' + d.months + ' meses' : ''}</span>
+              ${paidSoFar > 0 && d.months ? `<span>${paidSoFar}/${d.months} cuotas</span>` : ''}
+            </div>` : ''}
           </div>
           <div class="debt-card-type ${d.type}" style="flex-shrink:0;margin-left:8px;">${typeLabel[d.type]}</div>
         </div>
