@@ -6178,9 +6178,8 @@ function getPersonTotal(person) {
   return state.accounts[person].reduce((s, a) => s + a.balance, 0);
 }
 
-// Returns the reconstructed balance at the end of a given monthKey (YYYY-MM).
-// Uses the same rewind logic as the patrimony chart: start from current balance,
-// undo all transactions that happened after the month end, account by account.
+// Reconstructs balance at end of monthKey (YYYY-MM) by rewinding transactions.
+// Same logic used by the patrimony chart — one source of truth.
 function getPersonBalanceAtMonth(person, monthKey) {
   const endDate = monthKey + '-31';
   const accIds  = new Set(state.accounts[person].map(a => a.id));
@@ -6195,7 +6194,6 @@ function getPersonBalanceAtMonth(person, monthKey) {
       });
     total += bal;
   });
-  // Deposits are per-person — compute once outside the account loop
   (state.deposits[person] || []).forEach(dep => {
     if ((dep.createdAt || '') > endDate) total += dep.amount;
     if (dep.liquidated && (dep.liquidationDate || '') > endDate) total -= dep.amount;
@@ -6207,11 +6205,8 @@ function getCommonBalance() {
   return state.accounts.common.reduce((s, a) => s + a.balance, 0);
 }
 
-// Returns the reconstructed common balance at the end of a given monthKey (YYYY-MM).
 function getCommonBalanceAtMonth(monthKey) {
   const endDate = monthKey + '-31';
-  const accIds  = new Set(state.accounts.common.map(a => a.id));
-  if (accIds.size === 0) return 0;
   let total = 0;
   state.accounts.common.forEach(a => {
     let bal = a.balance;
@@ -6226,7 +6221,7 @@ function getCommonBalanceAtMonth(monthKey) {
   return Math.max(0, total);
 }
 
-
+// ===================== MONTH PICKER =====================
 const selectedMonth = { mario: null, miri: null }; // null = current month
 let pickerPerson = null;
 let pickerYear = new Date().getFullYear();
@@ -6650,8 +6645,6 @@ function renderGlobalPatrimonyChart() {
   }
 
   // Helper: get person personal balance at end of a month (excl. common accounts)
-  // Wrapper for the chart: returns null if the person had no activity yet that month
-  // (so no dot is drawn before data begins). Calculation delegates to global function.
   function snapBalance(person, monthKey) {
     const endDate = monthKey + '-31';
     const accIds  = new Set(state.accounts[person].map(a => a.id));
@@ -6660,7 +6653,7 @@ function renderGlobalPatrimonyChart() {
     return getPersonBalanceAtMonth(person, monthKey);
   }
 
-  // Wrapper for the chart: returns null if common accounts had no activity yet that month.
+  // Helper: get common balance at end of month
   function commonBalanceAt(monthKey) {
     const endDate = monthKey + '-31';
     const accIds  = new Set(state.accounts.common.map(a => a.id));
@@ -6854,7 +6847,6 @@ function renderGlobalChartTapSummary(idx, months, series) {
   const total = series.reduce((s, serie) => s + (serie.data[idx] || 0), 0);
   if (total === 0) { sumEl.style.display = 'none'; return; }
 
-  // Use s.color from the series array — already theme-aware, no hardcoded palette needed
   const rows = series
     .map((s, i) => ({ label: s.label, val: s.data[idx] || 0, color: s.color }))
     .filter(r => r.val > 0)
@@ -8387,12 +8379,15 @@ function updateAmortPreview() {
   const intWithout = r > 0 ? q * monthsLeft - capitalBefore : 0;
 
   if (amortMode === 'time') {
-    const newMonths = r > 0
-      ? Math.ceil(-Math.log(1 - capitalAfter * r / q) / Math.log(1 + r))
-      : Math.ceil(capitalAfter / q);
-    const intWith = r > 0 ? q * newMonths - capitalAfter : 0;
+    // Use exact (non-integer) months for interest calculation — Math.ceil causes
+    // discontinuities that make larger amortizations appear to save less interest.
+    const newMonthsExact = r > 0
+      ? -Math.log(1 - capitalAfter * r / q) / Math.log(1 + r)
+      : capitalAfter / q;
+    const newMonthsDisplay = Math.ceil(newMonthsExact); // only for showing to user
+    const intWith = r > 0 ? q * newMonthsExact - capitalAfter : 0;
     const saving  = Math.max(0, intWithout - intWith);
-    previewEl.innerHTML = `Cuota: <strong style="color:var(--text)">\u20ac${fmt(q)}</strong> (sin cambio)<br>Meses restantes: <strong style="color:#60c8f5">${newMonths}</strong> (antes: ${monthsLeft})<br>Ahorro en intereses: <strong style="color:var(--income)">\u20ac${fmt(saving)}</strong>`;
+    previewEl.innerHTML = `Cuota: <strong style="color:var(--text)">\u20ac${fmt(q)}</strong> (sin cambio)<br>Meses restantes: <strong style="color:#60c8f5">${newMonthsDisplay}</strong> (antes: ${monthsLeft})<br>Ahorro en intereses: <strong style="color:var(--income)">\u20ac${fmt(saving)}</strong>`;
   } else {
     const newQuota = frenchQuota(capitalAfter, d.tin, monthsLeft);
     const intWith  = r > 0 ? newQuota * monthsLeft - capitalAfter : 0;
