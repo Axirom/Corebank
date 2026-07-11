@@ -2516,7 +2516,13 @@ body:not(.values-hidden) .account-rate-inline {
         </div>
         <div class="chart-card">
           <div class="chart-card-title">Gastos por categoría — <span id="mario-chart-cat-month"></span></div>
-          <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;" id="mario-cat-filter"></div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px;">
+            <button class="month-picker-year-btn" onclick="changeCatYear('mario',-1)" style="width:28px;height:28px;font-size:15px;">‹</button>
+            <span id="mario-cat-year-label" style="font-size:13px;font-weight:600;color:var(--accent);min-width:38px;text-align:center;"></span>
+            <button class="month-picker-year-btn" onclick="changeCatYear('mario',1)" id="mario-cat-year-next" style="width:28px;height:28px;font-size:15px;">›</button>
+          </div>
+          <div id="mario-cat-filter-h1" style="display:flex;gap:5px;margin-bottom:5px;justify-content:flex-start;"></div>
+          <div id="mario-cat-filter-h2" style="display:flex;gap:5px;margin-bottom:12px;justify-content:flex-end;"></div>
           <div id="mario-cat-msg" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:12px;"></div>
           <div class="chart-wrap" id="mario-cat-wrap"><canvas id="mario-chart-cat"></canvas></div>
         </div>
@@ -2647,7 +2653,13 @@ body:not(.values-hidden) .account-rate-inline {
         </div>
         <div class="chart-card">
           <div class="chart-card-title">Gastos por categoría — <span id="miri-chart-cat-month"></span></div>
-          <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;" id="miri-cat-filter"></div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px;">
+            <button class="month-picker-year-btn" onclick="changeCatYear('miri',-1)" style="width:28px;height:28px;font-size:15px;">‹</button>
+            <span id="miri-cat-year-label" style="font-size:13px;font-weight:600;color:var(--accent);min-width:38px;text-align:center;"></span>
+            <button class="month-picker-year-btn" onclick="changeCatYear('miri',1)" id="miri-cat-year-next" style="width:28px;height:28px;font-size:15px;">›</button>
+          </div>
+          <div id="miri-cat-filter-h1" style="display:flex;gap:5px;margin-bottom:5px;justify-content:flex-start;"></div>
+          <div id="miri-cat-filter-h2" style="display:flex;gap:5px;margin-bottom:12px;justify-content:flex-end;"></div>
           <div id="miri-cat-msg" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:12px;"></div>
           <div class="chart-wrap" id="miri-cat-wrap"><canvas id="miri-chart-cat"></canvas></div>
         </div>
@@ -4498,12 +4510,10 @@ body:not(.values-hidden) .account-rate-inline {
     <div class="modal-handle"></div>
     <div class="modal-title" style="margin-bottom:4px;">Simulador periódico</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:18px;" id="pam-subtitle"></div>
-
     <div class="form-group">
       <label class="form-label">Aportación extra (€)</label>
       <input class="form-input" id="pam-amount" type="number" min="1" step="0.01" inputmode="decimal" placeholder="Ej: 500">
     </div>
-
     <label class="form-label" style="margin-bottom:8px;">Frecuencia</label>
     <div class="pam-freq-grid">
       <button class="pam-freq-btn" onclick="setPamFreq(1,this)">Mensual</button>
@@ -4511,46 +4521,20 @@ body:not(.values-hidden) .account-rate-inline {
       <button class="pam-freq-btn active" onclick="setPamFreq(6,this)">Semestral</button>
       <button class="pam-freq-btn" onclick="setPamFreq(12,this)">Anual</button>
     </div>
-
     <button class="btn-primary" style="width:100%;margin-bottom:18px;" onclick="runPeriodicAmortSim()">Calcular ahorro</button>
-
     <div id="pam-results" style="display:none;">
       <div class="pam-result-box">
-        <div class="pam-result-row">
-          <span>Sin aportaciones</span>
-          <span class="pam-result-val" id="pam-base-months"></span>
-        </div>
-        <div class="pam-result-row">
-          <span>Con aportaciones</span>
-          <span class="pam-result-val" id="pam-new-months"></span>
-        </div>
-        <div class="pam-result-row">
-          <span>Intereses sin aportaciones</span>
-          <span class="pam-result-val" id="pam-base-int"></span>
-        </div>
-        <div class="pam-result-row">
-          <span>Intereses con aportaciones</span>
-          <span class="pam-result-val" id="pam-new-int"></span>
-        </div>
+        <div class="pam-result-row"><span>Sin aportaciones</span><span class="pam-result-val" id="pam-base-months"></span></div>
+        <div class="pam-result-row"><span>Con aportaciones</span><span class="pam-result-val" id="pam-new-months"></span></div>
+        <div class="pam-result-row"><span>Intereses sin aportaciones</span><span class="pam-result-val" id="pam-base-int"></span></div>
+        <div class="pam-result-row"><span>Intereses con aportaciones</span><span class="pam-result-val" id="pam-new-int"></span></div>
       </div>
-      <div class="pam-saving-row">
-        <span>⏱ Tiempo ahorrado</span>
-        <span class="pam-saving-val" id="pam-saved-time"></span>
-      </div>
-      <div class="pam-saving-row">
-        <span>💰 Intereses ahorrados</span>
-        <span class="pam-saving-val" id="pam-saved-int"></span>
-      </div>
-      <div class="chart-wrap" style="height:180px;margin-top:14px;">
-        <canvas id="pam-chart"></canvas>
-      </div>
+      <div class="pam-saving-row"><span>⏱ Tiempo ahorrado</span><span class="pam-saving-val" id="pam-saved-time"></span></div>
+      <div class="pam-saving-row"><span>💰 Intereses ahorrados</span><span class="pam-saving-val" id="pam-saved-int"></span></div>
+      <div class="chart-wrap" style="height:180px;margin-top:14px;"><canvas id="pam-chart"></canvas></div>
       <div style="display:flex;gap:16px;justify-content:center;margin-top:8px;flex-wrap:wrap;">
-        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);">
-          <div style="width:16px;height:2px;background:#f97316;border-radius:2px;"></div>Sin aportaciones
-        </div>
-        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);">
-          <div style="width:16px;height:2px;background:var(--income);border-radius:2px;"></div>Con aportaciones
-        </div>
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);"><div style="width:16px;height:2px;background:#f97316;border-radius:2px;"></div>Sin aportaciones</div>
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);"><div style="width:16px;height:2px;background:var(--income);border-radius:2px;"></div>Con aportaciones</div>
       </div>
     </div>
   </div>
@@ -6365,7 +6349,10 @@ function getMonthLabelForPerson(person) {
 }
 
 function renderTotals(person) {
-  const total = getPersonTotal(person);
+  const sel = selectedMonth[person];
+  const total = sel
+    ? getPersonBalanceAtMonth(person, `${sel.year}-${String(sel.month + 1).padStart(2, '0')}`)
+    : getPersonTotal(person);
   const commonTotal = getCommonBalance();
   countUp(document.getElementById(person + '-total'), total);
   document.getElementById(person + '-common-balance').textContent = fmtShort(commonTotal);
@@ -8355,52 +8342,37 @@ function openPeriodicAmortSim() {
 function runPeriodicAmortSim() {
   const d = (state.debts[detailDebtPerson] || []).find(x => x.id === detailDebtId);
   if (!d) return;
-
-  const extra      = parseFloat(document.getElementById('pam-amount').value);
+  const extra = parseFloat(document.getElementById('pam-amount').value);
   if (!extra || extra <= 0) { showToast('Introduce un importe válido', 'error'); return; }
-
-  const r          = d.tin / 100 / 12;
-  const q          = d.quota;
+  const r = d.tin / 100 / 12;
+  const q = d.quota;
   const capitalRem = Math.max(0, d.total - (d.capitalPaid || d.paid || 0));
   if (!q || q <= 0 || capitalRem <= 0) { showToast('El préstamo necesita cuota y capital pendiente', 'error'); return; }
   if (r > 0 && q <= capitalRem * r) { showToast('La cuota no cubre los intereses mensuales', 'error'); return; }
-
   const MAX = 1200;
-
-  // ── Simulation WITHOUT extra payments ──
   const balWithout = [capitalRem];
   let bal = capitalRem, intWithout = 0;
   while (bal > 0.005 && balWithout.length <= MAX) {
-    const interest = bal * r;
-    intWithout    += interest;
-    bal            = bal * (1 + r) - q;
-    balWithout.push(Math.max(0, bal));
+    const interest = bal * r; intWithout += interest;
+    bal = bal * (1 + r) - q; balWithout.push(Math.max(0, bal));
   }
   const monthsWithout = balWithout.length - 1;
-
-  // ── Simulation WITH periodic extra payments ──
   const balWith = [capitalRem];
-  bal = capitalRem;
-  let intWith = 0, month = 0;
+  bal = capitalRem; let intWith = 0, month = 0;
   while (bal > 0.005 && balWith.length <= MAX) {
     month++;
-    const interest = bal * r;
-    intWith       += interest;
-    bal            = bal * (1 + r) - q;
+    const interest = bal * r; intWith += interest;
+    bal = bal * (1 + r) - q;
     if (month % pamFreq === 0) bal = Math.max(0, bal - extra);
     balWith.push(Math.max(0, bal));
   }
   const monthsWith = balWith.length - 1;
-
-  const monthsSaved   = monthsWithout - monthsWith;
+  const monthsSaved = monthsWithout - monthsWith;
   const interestSaved = Math.max(0, intWithout - intWith);
-
-  // ── Helper: months → human string ──
   function fmtMonths(m) {
     const y = Math.floor(m / 12), mo = m % 12;
     return [y > 0 ? y + ' año' + (y > 1 ? 's' : '') : '', mo > 0 ? mo + ' mes' + (mo > 1 ? 'es' : '') : ''].filter(Boolean).join(' ') || '< 1 mes';
   }
-
   document.getElementById('pam-base-months').textContent = fmtMonths(monthsWithout);
   document.getElementById('pam-new-months').textContent  = fmtMonths(monthsWith);
   document.getElementById('pam-base-int').textContent    = '€' + fmt(intWithout);
@@ -8408,30 +8380,23 @@ function runPeriodicAmortSim() {
   document.getElementById('pam-saved-time').textContent  = monthsSaved > 0 ? fmtMonths(monthsSaved) : 'Sin cambio';
   document.getElementById('pam-saved-int').textContent   = '€' + fmt(interestSaved);
   document.getElementById('pam-results').style.display   = 'block';
-
-  // ── Chart: sample to max ~60 points for readability ──
-  const totalMonths = monthsWithout;
-  const step        = Math.max(1, Math.floor(totalMonths / 60));
-  const labels      = [], dataA = [], dataB = [];
-  for (let i = 0; i <= totalMonths; i += step) {
+  const step = Math.max(1, Math.floor(monthsWithout / 60));
+  const labels = [], dataA = [], dataB = [];
+  for (let i = 0; i <= monthsWithout; i += step) {
     const y = Math.floor(i / 12), mo = i % 12;
     labels.push(y > 0 && mo === 0 ? `Año ${y}` : (i === 0 ? 'Hoy' : `M${i}`));
     dataA.push(+(balWithout[i] ?? 0).toFixed(2));
     dataB.push(+(balWith[i] ?? 0).toFixed(2));
   }
-
   if (pamChart) { pamChart.destroy(); pamChart = null; }
   const ctx = document.getElementById('pam-chart');
   if (!ctx) return;
   pamChart = new Chart(ctx, {
     type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label: 'Sin aportaciones', data: dataA, borderColor: '#f97316', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.3 },
-        { label: 'Con aportaciones', data: dataB, borderColor: '#6fcf97', backgroundColor: 'rgba(111,207,151,0.08)', borderWidth: 2, pointRadius: 0, tension: 0.3, fill: true }
-      ]
-    },
+    data: { labels, datasets: [
+      { label: 'Sin aportaciones', data: dataA, borderColor: '#f97316', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.3 },
+      { label: 'Con aportaciones', data: dataB, borderColor: '#6fcf97', backgroundColor: 'rgba(111,207,151,0.08)', borderWidth: 2, pointRadius: 0, tension: 0.3, fill: true }
+    ]},
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
@@ -9794,8 +9759,6 @@ function savePosition() {
     inv.lots.push({ id: Date.now().toString(), units, price, commission, date });
     inv.movements.push({ id: Date.now().toString(), type: 'buy', units, price, total, commission, sourceId: invNoDeduct ? null : sourceId, noDeduct: invNoDeduct, date, notes });
     inv.priceHistory.push({ date, price });
-    // Only update currentPrice if this buy is the most recent price we have.
-    // A historical buy (older date) should never overwrite a more recent price update.
     const latestPriceDate = (inv.priceHistory || []).reduce((latest, h) => h.date > latest ? h.date : latest, '');
     if (date >= latestPriceDate) inv.currentPrice = price;
   }
@@ -11063,7 +11026,6 @@ function selectInvPeriod(period, btn) {
   document.querySelectorAll('.inv-period-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   renderInvPeriodSummary();
-  renderPortfolioChart();
 }
 
 function periodStartDate(period) {
@@ -11171,9 +11133,6 @@ function renderInvPeriodSummary() {
     });
   }
   const trueGain = currentVal - startVal - netFlows;
-  // MWR: approximate money-weighted return.
-  // Base = startVal + netFlows/2 (assumes flows arrived mid-period on average).
-  // This avoids inflated % when a small starting position receives large additional capital.
   const base   = startVal + netFlows / 2;
   const mwrPct = base > 0 ? (trueGain / base) * 100 : 0;
 
@@ -11436,8 +11395,6 @@ function renderPortfolioChart() {
   if (!ctx) return;
 
   ensureInvestments();
-
-  // Earliest date with any data
   const allRawDates = [];
   state.investments.forEach(inv => {
     (inv.priceHistory || []).forEach(h => allRawDates.push(h.date));
@@ -11453,24 +11410,19 @@ function renderPortfolioChart() {
 
   const today    = new Date().toISOString().split('T')[0];
   const earliest = [...allRawDates].sort()[0];
-
-  // Period start and granularity
   const startDate = periodStartDate(currentInvPeriod) || earliest;
   const period    = currentInvPeriod;
 
-  // Build sequence of dates at the right granularity
-  // 1M → daily, 3M/6M → weekly, 1A/3A/TODO → monthly
   function buildDates(start, end, step) {
     const dates = [];
     const cur   = new Date(start + 'T12:00:00');
     const last  = new Date(end   + 'T12:00:00');
     while (cur <= last) {
       dates.push(cur.toISOString().split('T')[0]);
-      if (step === 'day')   cur.setDate(cur.getDate() + 1);
+      if (step === 'day')        cur.setDate(cur.getDate() + 1);
       else if (step === 'week')  cur.setDate(cur.getDate() + 7);
       else if (step === 'month') cur.setMonth(cur.getMonth() + 1);
     }
-    // Always include today as the last point
     if (dates[dates.length - 1] !== end) dates.push(end);
     return dates;
   }
@@ -11482,7 +11434,6 @@ function renderPortfolioChart() {
 
   const dates = buildDates(startDate, today, step);
 
-  // Helper: capital invested at a given date
   function capitalAt(dateStr) {
     let total = 0;
     state.investments.forEach(inv => {
@@ -11502,13 +11453,11 @@ function renderPortfolioChart() {
   }
 
   const currentValues  = dates.map(d => {
-    const isToday = d === today;
-    if (isToday) return state.investments.reduce((s, inv) => s + inv.units * (inv.currentPrice || inv.avgBuyPrice || 0), 0);
+    if (d === today) return state.investments.reduce((s, inv) => s + inv.units * (inv.currentPrice || inv.avgBuyPrice || 0), 0);
     return getPortfolioValueAt(d);
   });
   const investedValues = dates.map(d => capitalAt(d));
 
-  // Label format depends on granularity
   function fmtLabel(d) {
     const dt = new Date(d + 'T12:00:00');
     if (step === 'day')   return dt.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
@@ -11517,37 +11466,13 @@ function renderPortfolioChart() {
   }
 
   const c = getChartColors();
-
   invPortfolioChart = new Chart(ctx, {
     type: 'line',
     data: {
       labels: dates.map(fmtLabel),
       datasets: [
-        {
-          label: 'Capital invertido',
-          data: investedValues,
-          borderColor: c.accent2,
-          backgroundColor: 'transparent',
-          borderWidth: 1.5,
-          borderDash: [5, 4],
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          fill: false,
-          tension: 0.3,
-          order: 2
-        },
-        {
-          label: 'Valor actual',
-          data: currentValues,
-          borderColor: c.accent,
-          backgroundColor: c.accent.replace('0.9)', '0.08)'),
-          borderWidth: 2,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          fill: true,
-          tension: 0.3,
-          order: 1
-        }
+        { label: 'Capital invertido', data: investedValues, borderColor: c.accent2, backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 4, fill: false, tension: 0.3, order: 2 },
+        { label: 'Valor actual', data: currentValues, borderColor: c.accent, backgroundColor: c.accent.replace('0.9)', '0.08)'), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, fill: true, tension: 0.3, order: 1 }
       ]
     },
     options: {
@@ -11555,49 +11480,33 @@ function renderPortfolioChart() {
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: ctx => ` ${ctx.dataset.label}: €${fmt(ctx.raw)}`,
-            footer: items => {
-              const invested = items.find(i => i.dataset.label === 'Capital invertido')?.raw || 0;
-              const current  = items.find(i => i.dataset.label === 'Valor actual')?.raw    || 0;
-              const diff     = current - invested;
-              return diff >= 0 ? `Ganancia: +€${fmt(diff)}` : `Pérdida: -€${fmt(Math.abs(diff))}`;
-            }
+        tooltip: { callbacks: {
+          label: ctx => ` ${ctx.dataset.label}: €${fmt(ctx.raw)}`,
+          footer: items => {
+            const invested = items.find(i => i.dataset.label === 'Capital invertido')?.raw || 0;
+            const current  = items.find(i => i.dataset.label === 'Valor actual')?.raw    || 0;
+            const diff = current - invested;
+            return diff >= 0 ? `Ganancia: +€${fmt(diff)}` : `Pérdida: -€${fmt(Math.abs(diff))}`;
           }
-        }
+        }}
       },
       scales: {
-        x: {
-          grid: { color: 'rgba(255,255,255,0.04)' },
-          ticks: {
-            color: 'rgba(255,255,255,0.4)',
-            font: { size: 10 },
-            maxTicksLimit: step === 'day' ? 10 : step === 'week' ? 8 : 7,
-            maxRotation: 0
-          }
-        },
-        y: {
-          grid: { color: 'rgba(255,255,255,0.05)' },
-          ticks: { color: 'rgba(255,255,255,0.4)', callback: v => v >= 1000 ? (v/1000).toFixed(1)+'k' : '€'+v.toFixed(0) }
-        }
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: 'rgba(255,255,255,0.4)', font: { size: 10 }, maxTicksLimit: step === 'day' ? 10 : step === 'week' ? 8 : 7, maxRotation: 0 } },
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.4)', callback: v => v >= 1000 ? (v/1000).toFixed(1)+'k' : '€'+v.toFixed(0) } }
       }
     }
   });
 
-  // Render custom legend below chart
   const legEl = document.getElementById('inv-portfolio-legend');
   if (legEl) {
     const c2 = getChartColors();
     legEl.innerHTML = `
       <div style="display:flex;gap:16px;justify-content:center;margin-top:10px;flex-wrap:wrap;">
         <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);">
-          <svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="${c2.accent2}" stroke-width="2" stroke-dasharray="4,3"/></svg>
-          Capital invertido
+          <svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="${c2.accent2}" stroke-width="2" stroke-dasharray="4,3"/></svg>Capital invertido
         </div>
         <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);">
-          <div style="width:20px;height:3px;background:${c2.accent};border-radius:2px;"></div>
-          Valor actual
+          <div style="width:20px;height:3px;background:${c2.accent};border-radius:2px;"></div>Valor actual
         </div>
       </div>`;
   }
@@ -11836,9 +11745,6 @@ function getCurrentBalance(scope) {
 }
 
 function getMonthlyRate(scope) {
-  // Compute average monthly balance change over the last 4 months.
-  // Uses getPersonBalanceAtMonth / getCommonBalanceAtMonth — the same
-  // rewind logic as the patrimony chart — so it's consistent and correct.
   const now = new Date();
   const LOOKBACK = 4;
   const keys = [];
@@ -11846,7 +11752,6 @@ function getMonthlyRate(scope) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   }
-
   const balances = keys.map(k => {
     if (scope === 'global') {
       return getPersonBalanceAtMonth('mario', k)
@@ -11855,8 +11760,6 @@ function getMonthlyRate(scope) {
     }
     return getPersonBalanceAtMonth(scope, k);
   });
-
-  // Average the month-over-month deltas (skip pairs where both are zero — no data yet)
   let totalChange = 0, count = 0;
   for (let i = 1; i < balances.length; i++) {
     if (balances[i] > 0 || balances[i - 1] > 0) {
@@ -13330,6 +13233,21 @@ function autoSnapshot() {
 // ===================== CHARTS =====================
 const chartInstances = {};
 const catFilterMonth = { mario: null, miri: null };
+const catFilterYear  = { mario: new Date().getFullYear(), miri: new Date().getFullYear() };
+
+function changeCatYear(person, dir) {
+  const newYear = catFilterYear[person] + dir;
+  const currentYear = new Date().getFullYear();
+  if (newYear > currentYear) return;
+  catFilterYear[person] = newYear;
+  // Reset month to last available in new year
+  const now = new Date();
+  const maxMonth = newYear === currentYear ? now.getMonth() + 1 : 12;
+  const currentMonthNum = catFilterMonth[person] ? parseInt(catFilterMonth[person].split('-')[1]) : maxMonth;
+  const clampedMonth = Math.min(currentMonthNum, maxMonth);
+  catFilterMonth[person] = `${newYear}-${String(clampedMonth).padStart(2, '0')}`;
+  renderCatChart(person);
+}
 
 if (typeof Chart !== 'undefined' && Chart.defaults) {
   Chart.defaults.color = '#c8d0e8';
@@ -13577,51 +13495,69 @@ function renderSavingChart(person) {
 function renderCatChart(person) {
   const id = person + '-chart-cat';
   destroyChart(id);
-  const ctx = document.getElementById(id);
-  if (!ctx || ctx.offsetWidth === 0) return;
 
-  // Build month filter pills (last 6 months)
-  const months = getLastNMonths(6);
-  if (!catFilterMonth[person]) catFilterMonth[person] = months[months.length - 1].key;
+  const now         = new Date();
+  const currentYear = now.getFullYear();
+  const year        = catFilterYear[person] || currentYear;
+  const maxMonth    = year === currentYear ? now.getMonth() + 1 : 12;
 
-  const filterEl = document.getElementById(person + '-cat-filter');
-  const labelEl  = document.getElementById(person + '-chart-cat-month');
-  if (filterEl) {
-    filterEl.innerHTML = months.map(m =>
-      `<button class="chart-pill ${m.key === catFilterMonth[person] ? 'active' : ''}"
-        onclick="setCatMonth('${person}','${m.key}')">${m.label}</button>`
-    ).join('');
+  // Default selected month: last available in this year
+  if (!catFilterMonth[person] || parseInt(catFilterMonth[person].split('-')[0]) !== year) {
+    catFilterMonth[person] = `${year}-${String(maxMonth).padStart(2, '0')}`;
   }
-  if (labelEl) {
-    const sel = months.find(m => m.key === catFilterMonth[person]);
-    labelEl.textContent = sel ? sel.label : '';
+  const selectedKey = catFilterMonth[person];
+
+  // Year label & next-year button
+  const yearLabelEl = document.getElementById(person + '-cat-year-label');
+  const yearNextBtn = document.getElementById(person + '-cat-year-next');
+  if (yearLabelEl) yearLabelEl.textContent = year;
+  if (yearNextBtn) yearNextBtn.style.opacity = year >= currentYear ? '0.3' : '1';
+
+  // 12 pills in two rows of 6 (jan–jun left-aligned, jul–dec right-aligned)
+  const monthNames = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const h1El = document.getElementById(person + '-cat-filter-h1');
+  const h2El = document.getElementById(person + '-cat-filter-h2');
+
+  function makePill(i) {
+    const key      = `${year}-${String(i + 1).padStart(2, '0')}`;
+    const disabled = i + 1 > maxMonth;
+    const active   = key === selectedKey;
+    return `<button class="chart-pill${active ? ' active' : ''}"
+      style="${disabled ? 'opacity:0.25;pointer-events:none;' : ''}"
+      onclick="setCatMonth('${person}','${key}')">${monthNames[i]}</button>`;
   }
+  if (h1El) h1El.innerHTML = [0,1,2,3,4,5].map(makePill).join('');
+  if (h2El) h2El.innerHTML = [6,7,8,9,10,11].map(makePill).join('');
+
+  // Title label
+  const labelEl = document.getElementById(person + '-chart-cat-month');
+  if (labelEl) labelEl.textContent = monthNames[parseInt(selectedKey.split('-')[1]) - 1] + ' ' + year;
 
   const personAccIds = new Set([
     ...state.accounts[person].map(a => a.id),
     ...state.accounts.common.map(a => a.id)
   ]);
-  const monthKey = catFilterMonth[person];
   const cats = {};
-
   state.transactions
-    .filter(t => t.date && t.date.startsWith(monthKey) && t.type === 'expense' && t.category !== 'Transferencia' && t.category !== 'Inversión' && personAccIds.has(t.accountId))
+    .filter(t => t.date && t.date.startsWith(selectedKey) && t.type === 'expense' && t.category !== 'Transferencia' && t.category !== 'Inversión' && personAccIds.has(t.accountId))
     .forEach(t => { cats[t.category] = (cats[t.category] || 0) + t.amount; });
 
   const sorted = Object.entries(cats).sort((a, b) => b[1] - a[1]);
-
   const msgEl  = document.getElementById(person + '-cat-msg');
   const wrapEl = document.getElementById(person + '-cat-wrap');
 
   if (sorted.length === 0) {
-    if (msgEl)  { msgEl.textContent  = 'Sin gastos registrados este mes'; msgEl.style.display  = 'block'; }
+    if (msgEl)  { msgEl.textContent = 'Sin gastos registrados este mes'; msgEl.style.display = 'block'; }
     if (wrapEl) wrapEl.style.display = 'none';
     return;
   }
   if (msgEl)  msgEl.style.display  = 'none';
   if (wrapEl) wrapEl.style.display = 'block';
 
-  const c = getChartColors();
+  const ctx = document.getElementById(id);
+  if (!ctx || ctx.offsetWidth === 0) return;
+
+  const c       = getChartColors();
   const palette = c.donut;
 
   const total = sorted.reduce((s, e) => s + e[1], 0);
