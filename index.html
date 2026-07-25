@@ -13358,12 +13358,11 @@ function renderInOutChart(person) {
   if (!ctx || ctx.offsetWidth === 0) return;
 
   const months = getLastNMonths(6);
-  const personAccIds = new Set([
-    ...state.accounts[person].map(a => a.id),
-    ...state.accounts.common.map(a => a.id)
-  ]);
-  const otherPerson = person === 'mario' ? 'miri' : 'mario';
-  const otherAccIds = new Set(state.accounts[otherPerson].map(a => a.id));
+  const personalAccIds = new Set(state.accounts[person].map(a => a.id));
+  const commonAccIds   = new Set(state.accounts.common.map(a => a.id));
+  const personAccIds   = new Set([...personalAccIds, ...commonAccIds]);
+  const otherPerson    = person === 'mario' ? 'miri' : 'mario';
+  const otherAccIds    = new Set(state.accounts[otherPerson].map(a => a.id));
 
   const incomeData  = [];
   const expenseData = [];
@@ -13374,13 +13373,16 @@ function renderInOutChart(person) {
       if (t.category === 'Inversión') return;
       const isTransfer = t.category === 'Transferencia' && t.transferFromId && t.transferToId;
       if (isTransfer) {
-        if (personAccIds.has(t.transferFromId) && otherAccIds.has(t.transferToId) && t.type === 'expense') exp += t.amount;
-        if (otherAccIds.has(t.transferFromId) && personAccIds.has(t.transferToId) && t.type === 'income')  inc += t.amount;
+        if (personalAccIds.has(t.transferFromId) && otherAccIds.has(t.transferToId) && t.type === 'expense') exp += t.amount;
+        if (otherAccIds.has(t.transferFromId) && personalAccIds.has(t.transferToId) && t.type === 'income')  inc += t.amount;
         return;
       }
       if (!personAccIds.has(t.accountId)) return;
-      if (t.type === 'income')  inc += t.amount;
-      if (t.type === 'expense') exp += t.amount;
+      const isCommon = commonAccIds.has(t.accountId);
+      if (isCommon && t.type === 'income' && t.category === 'Transferencia') return;
+      const factor = isCommon ? 0.5 : 1;
+      if (t.type === 'income')  inc += t.amount * factor;
+      if (t.type === 'expense') exp += t.amount * factor;
     });
     incomeData.push(inc);
     expenseData.push(exp);
@@ -13533,14 +13535,16 @@ function renderCatChart(person) {
   const labelEl = document.getElementById(person + '-chart-cat-month');
   if (labelEl) labelEl.textContent = monthNames[parseInt(selectedKey.split('-')[1]) - 1] + ' ' + year;
 
-  const personAccIds = new Set([
-    ...state.accounts[person].map(a => a.id),
-    ...state.accounts.common.map(a => a.id)
-  ]);
+  const personalAccIds = new Set(state.accounts[person].map(a => a.id));
+  const commonAccIds   = new Set(state.accounts.common.map(a => a.id));
+  const allAccIds      = new Set([...personalAccIds, ...commonAccIds]);
   const cats = {};
   state.transactions
-    .filter(t => t.date && t.date.startsWith(selectedKey) && t.type === 'expense' && t.category !== 'Transferencia' && t.category !== 'Inversión' && personAccIds.has(t.accountId))
-    .forEach(t => { cats[t.category] = (cats[t.category] || 0) + t.amount; });
+    .filter(t => t.date && t.date.startsWith(selectedKey) && t.type === 'expense' && t.category !== 'Transferencia' && t.category !== 'Inversión' && allAccIds.has(t.accountId))
+    .forEach(t => {
+      const factor = commonAccIds.has(t.accountId) ? 0.5 : 1;
+      cats[t.category] = (cats[t.category] || 0) + t.amount * factor;
+    });
 
   const sorted = Object.entries(cats).sort((a, b) => b[1] - a[1]);
   const msgEl  = document.getElementById(person + '-cat-msg');
