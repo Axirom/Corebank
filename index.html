@@ -1947,6 +1947,55 @@ body.theme-jade::before {
 .settings-btn-label { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 2px; }
 .settings-btn-desc  { font-size: 11px; color: var(--muted); }
 
+/* ===================== TOGGLE SWITCH (notificaciones) ===================== */
+.notif-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  margin-bottom: 10px;
+}
+.notif-row-info { flex: 1; min-width: 0; }
+.notif-row-label { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 2px; }
+.notif-row-desc  { font-size: 11px; color: var(--muted); }
+.notif-state-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--expense);
+  flex-shrink: 0;
+}
+.notif-state-label.on { color: var(--income); }
+.toggle-switch {
+  position: relative;
+  width: 46px;
+  height: 27px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--expense);
+  opacity: 0.85;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s ease, opacity 0.2s ease;
+}
+.toggle-switch.on { background: var(--income); opacity: 1; }
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 23px; height: 23px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  transition: transform 0.2s ease;
+}
+.toggle-switch.on::after { transform: translateX(19px); }
+
 /* ===================== CHARTS ===================== */
 .chart-card {
   background: rgba(255,255,255,0.055);
@@ -2420,8 +2469,8 @@ body:not(.values-hidden) .account-rate-inline {
             <div class="total-stat-value" style="color:var(--expense)" id="mario-expense-month">€0</div>
           </div>
           <div class="total-stat">
-            <div class="total-stat-label">Ahorro</div>
-            <div class="total-stat-value" style="color:var(--saving)" id="mario-saving-month">€0</div>
+            <div class="total-stat-label">Inversión</div>
+            <div class="total-stat-value" style="color:var(--invest)" id="mario-invest-month">€0</div>
           </div>
           <div class="total-stat">
             <div class="total-stat-label">Saldo común</div>
@@ -2556,8 +2605,8 @@ body:not(.values-hidden) .account-rate-inline {
             <div class="total-stat-value" style="color:var(--expense)" id="miri-expense-month">€0</div>
           </div>
           <div class="total-stat">
-            <div class="total-stat-label">Ahorro</div>
-            <div class="total-stat-value" style="color:var(--saving)" id="miri-saving-month">€0</div>
+            <div class="total-stat-label">Inversión</div>
+            <div class="total-stat-value" style="color:var(--invest)" id="miri-invest-month">€0</div>
           </div>
           <div class="total-stat">
             <div class="total-stat-label">Saldo común</div>
@@ -3303,7 +3352,7 @@ body:not(.values-hidden) .account-rate-inline {
     </div>
 
     <div class="form-group">
-      <label class="form-label">Cuenta origen</label>
+      <label class="form-label">Cuenta</label>
       <select class="form-select" id="inv-source-account"></select>
     </div>
 
@@ -3312,7 +3361,7 @@ body:not(.values-hidden) .account-rate-inline {
         <div class="common-toggle-icon">⚡</div>
         <div class="common-toggle-info">
           <div class="common-toggle-title">Sin cargo a cuenta</div>
-          <div class="common-toggle-desc">El broker lo gestiona automáticamente (ej. cashback, redondeo)</div>
+          <div class="common-toggle-desc">El broker lo gestiona automáticamente (ej. cashback, redondeo). La cuenta se usa solo para saber a quién corresponde — no se descuenta saldo.</div>
         </div>
         <div class="common-toggle-check" id="inv-no-deduct-check">✓</div>
       </div>
@@ -3800,7 +3849,7 @@ body:not(.values-hidden) .account-rate-inline {
           <div class="common-toggle-icon">⚡</div>
           <div class="common-toggle-info">
             <div class="common-toggle-title">Sin cargo a cuenta</div>
-            <div class="common-toggle-desc">El broker lo gestiona automáticamente</div>
+            <div class="common-toggle-desc">El broker lo gestiona automáticamente. La cuenta se usa solo para saber a quién corresponde — no se descuenta saldo.</div>
           </div>
           <div class="common-toggle-check" id="eim-no-deduct-check">✓</div>
         </div>
@@ -4048,6 +4097,26 @@ body:not(.values-hidden) .account-rate-inline {
         <input class="form-input" id="new-cat-expense" type="text" placeholder="Nueva categoría…" style="flex:1;padding:9px 12px;font-size:13px;" onkeydown="if(event.key==='Enter')addCategory('expense')">
         <button class="btn-add-small" onclick="addCategory('expense')" style="padding:9px 14px;">+ Añadir</button>
       </div>
+    </div>
+
+    <div class="settings-section-title" style="margin-top:20px;">Notificaciones</div>
+
+    <div class="notif-row">
+      <div class="notif-row-info">
+        <div class="notif-row-label">Suscripciones pendientes</div>
+        <div class="notif-row-desc">Avisa al abrir la app si hay suscripciones vencidas por cobrar</div>
+      </div>
+      <span class="notif-state-label" id="notif-state-subscriptions">Activado</span>
+      <button class="toggle-switch" id="notif-toggle-subscriptions" onclick="toggleNotifSetting('subscriptions')"></button>
+    </div>
+
+    <div class="notif-row">
+      <div class="notif-row-info">
+        <div class="notif-row-label">Aportaciones periódicas</div>
+        <div class="notif-row-desc">Avisa al abrir la app si hay aportaciones de inversión pendientes de ejecutar</div>
+      </div>
+      <span class="notif-state-label" id="notif-state-contributions">Activado</span>
+      <button class="toggle-switch" id="notif-toggle-contributions" onclick="toggleNotifSetting('contributions')"></button>
     </div>
 
     <div class="settings-section-title" style="margin-top:20px;">Seguridad</div>
@@ -4958,7 +5027,8 @@ function getDefaults() {
     activeProfiles: { mario: true, miri: true },
     names: { mario: 'Mario', miri: 'Miri' },
     investSettings: { inflation: 2.0, irpf: 19 },
-    contributions: []
+    contributions: [],
+    notifications: { subscriptions: true, contributions: true }
   };
 }
 
@@ -5010,6 +5080,9 @@ function migrateState(parsed) {
   if (!parsed.subscriptions.mario) parsed.subscriptions.mario = [];
   if (!parsed.subscriptions.miri)  parsed.subscriptions.miri  = [];
   if (!parsed.activeProfiles) parsed.activeProfiles = { mario: true, miri: true };
+  if (!parsed.notifications) parsed.notifications = { subscriptions: true, contributions: true };
+  if (typeof parsed.notifications.subscriptions !== 'boolean') parsed.notifications.subscriptions = true;
+  if (typeof parsed.notifications.contributions !== 'boolean') parsed.notifications.contributions = true;
   return parsed;
 }
 
@@ -6180,8 +6253,8 @@ function renderTransactions(person) {
       const toMeta    = getAccountMeta(t.transferToId);
       const fromLabel = fromMeta ? `${fromMeta.acc.name} (${fromMeta.ownerLabel})` : '—';
       const toLabel   = toMeta   ? `${toMeta.acc.name} (${toMeta.ownerLabel})`     : '—';
-      const fromColor = fromMeta ? fromMeta.acc.color : 'var(--muted)';
-      const toColor   = toMeta   ? toMeta.acc.color   : 'var(--muted)';
+      const fromColor = fromMeta ? readableAccentColor(fromMeta.acc.color) : 'var(--muted)';
+      const toColor   = toMeta   ? readableAccentColor(toMeta.acc.color)   : 'var(--muted)';
       // Internal (same person pool) → white, no sign. Cross-person → income/expense color
       const fromInPool = personAccIds.has(t.transferFromId);
       const toInPool   = personAccIds.has(t.transferToId);
@@ -6248,7 +6321,8 @@ function getPersonBalanceAtMonth(person, monthKey) {
   state.accounts[person].forEach(a => {
     let bal = a.balance;
     state.transactions
-      .filter(t => t.date > endDate && t.accountId === a.id)
+      // noDeduct transactions never touched the real balance, so they must not be reversed here
+      .filter(t => t.date > endDate && t.accountId === a.id && !t.noDeduct)
       .forEach(t => {
         if (t.type === 'income')  bal -= t.amount;
         if (t.type === 'expense') bal += t.amount;
@@ -6272,7 +6346,8 @@ function getCommonBalanceAtMonth(monthKey) {
   state.accounts.common.forEach(a => {
     let bal = a.balance;
     state.transactions
-      .filter(t => t.date > endDate && t.accountId === a.id)
+      // noDeduct transactions never touched the real balance, so they must not be reversed here
+      .filter(t => t.date > endDate && t.accountId === a.id && !t.noDeduct)
       .forEach(t => {
         if (t.type === 'income')  bal -= t.amount;
         if (t.type === 'expense') bal += t.amount;
@@ -6379,15 +6454,21 @@ function renderTotals(person) {
   const otherAccIds  = new Set(state.accounts[otherPerson].map(a => a.id));
   const myPool       = new Set([...personAccIds, ...commonAccIds]);
 
-  let income = 0, expense = 0, saving = 0;
+  let income = 0, expense = 0, invested = 0;
 
   state.transactions
     .filter(t => t.date && t.date.startsWith(monthStr))
     .forEach(t => {
-      const inMyPool   = myPool.has(t.accountId);
+      const inMyPool = myPool.has(t.accountId);
+      const isCommon = commonAccIds.has(t.accountId);
+      const factor   = isCommon ? 0.5 : 1;
       const isTransfer = t.category === 'Transferencia' && t.transferFromId && t.transferToId;
-      // Investment transactions belong only to the Inversión section — exclude from personal totals
-      if (t.category === 'Inversión') return;
+
+      // Investment purchases/contributions: tracked separately as "Inversión" for the month
+      if (t.category === 'Inversión') {
+        if (inMyPool && t.type === 'expense') invested += t.amount * factor;
+        return;
+      }
 
       if (isTransfer) {
         const fromInPersonal = personAccIds.has(t.transferFromId);
@@ -6400,14 +6481,15 @@ function renderTotals(person) {
       }
 
       if (!inMyPool) return;
-      if (t.type === 'income')  income  += t.amount;
-      if (t.type === 'expense') expense += t.amount;
-      if (t.type === 'saving')  saving  += t.amount;
+      // Transfers into the common account aren't personal income (matches chart logic)
+      if (isCommon && t.type === 'income' && t.category === 'Transferencia') return;
+      if (t.type === 'income')  income  += t.amount * factor;
+      if (t.type === 'expense') expense += t.amount * factor;
     });
 
   document.getElementById(person + '-income-month').textContent  = fmtShort(income);
   document.getElementById(person + '-expense-month').textContent = fmtShort(expense);
-  document.getElementById(person + '-saving-month').textContent  = fmtShort(saving);
+  document.getElementById(person + '-invest-month').textContent  = fmtShort(invested);
 
   // Tasa de ahorro
   const rateEl = document.getElementById(person + '-saving-rate');
@@ -6583,6 +6665,13 @@ function isDarkColor(hex) {
   const [r,g,b] = hexToRgb(hex);
   // Consider dark if luminance below 60 (very dark, e.g. black, dark grey)
   return (0.299*r + 0.587*g + 0.114*b) < 60;
+}
+
+// For text rendered directly in an account's color on a dark UI background:
+// dark account colors (near-black cards) become illegible, so fall back to the normal text color.
+function readableAccentColor(hex) {
+  if (!hex || hex === 'var(--muted)') return hex || 'var(--muted)';
+  return isDarkColor(hex) ? 'var(--text)' : hex;
 }
 
 function renderAccounts(person) {
@@ -7090,8 +7179,8 @@ function renderDetailTransactions(accountId) {
       const toMeta    = getAccountMeta(t.transferToId);
       const fromLabel = fromMeta ? `${fromMeta.acc.name} (${fromMeta.ownerLabel})` : '—';
       const toLabel   = toMeta   ? `${toMeta.acc.name} (${toMeta.ownerLabel})`     : '—';
-      const fromColor = fromMeta ? fromMeta.acc.color : 'var(--muted)';
-      const toColor   = toMeta   ? toMeta.acc.color   : 'var(--muted)';
+      const fromColor = fromMeta ? readableAccentColor(fromMeta.acc.color) : 'var(--muted)';
+      const toColor   = toMeta   ? readableAccentColor(toMeta.acc.color)   : 'var(--muted)';
       const amtColor  = t.type === 'income' ? 'var(--income)' : 'var(--expense)';
       const sign      = t.type === 'income' ? '+' : '-';
       const label     = (t.desc && t.desc !== 'Transferencia') ? t.desc : 'Transferencia interna';
@@ -7719,6 +7808,7 @@ function deleteSubFromDetail() {
 
 function checkPendingSubscriptions() {
   if (!state.subscriptions) return;
+  if (state.notifications && state.notifications.subscriptions === false) return;
   const today = new Date().toISOString().split('T')[0];
   pendingSubsQueue = [];
 
@@ -9592,14 +9682,12 @@ let invNoDeduct = false;
 function toggleInvNoDeduct() {
   invNoDeduct = !invNoDeduct;
   document.getElementById('inv-no-deduct-toggle').classList.toggle('active', invNoDeduct);
-  // Grey out account selector when no deduct
-  document.getElementById('inv-source-account').style.opacity = invNoDeduct ? '0.4' : '1';
+  // Account stays enabled even with no-deduct — needed to attribute the investment to a person
 }
 
 function resetInvNoDeduct() {
   invNoDeduct = false;
   document.getElementById('inv-no-deduct-toggle').classList.remove('active');
-  document.getElementById('inv-source-account').style.opacity = '1';
 }
 
 function updateInvTotalWithCommission() {
@@ -9715,7 +9803,7 @@ function savePosition() {
 
   if (units <= 0) { showToast('Introduce el número de unidades', 'error'); return; }
   if (price <= 0) { showToast('Introduce el precio por unidad', 'error'); return; }
-  if (!invNoDeduct && !sourceId) { showToast('Selecciona una cuenta origen', 'error'); return; }
+  if (!sourceId)  { showToast('Selecciona una cuenta', 'error'); return; }
   if (!date)      { showToast('Selecciona una fecha', 'error'); return; }
 
   ensureInvestments();
@@ -9738,7 +9826,7 @@ function savePosition() {
       distribution: INV_FUND_TYPES.has(invType) ? invDistType : undefined,
       ter: INV_FUND_TYPES.has(invType) ? (parseFloat(document.getElementById('inv-ter').value) || undefined) : undefined,
       lots: [{ id: Date.now().toString(), units, price, commission, date }],
-      movements: [{ id: Date.now().toString(), type: 'buy', units, price, total, commission, sourceId: invNoDeduct ? null : sourceId, noDeduct: invNoDeduct, date, notes }],
+      movements: [{ id: Date.now().toString(), type: 'buy', units, price, total, commission, sourceId, noDeduct: invNoDeduct, date, notes }],
       priceHistory: [{ date, price }]
     });
 
@@ -9757,23 +9845,22 @@ function savePosition() {
     inv.units        = totalUnits;
     if (!inv.lots) inv.lots = [];
     inv.lots.push({ id: Date.now().toString(), units, price, commission, date });
-    inv.movements.push({ id: Date.now().toString(), type: 'buy', units, price, total, commission, sourceId: invNoDeduct ? null : sourceId, noDeduct: invNoDeduct, date, notes });
+    inv.movements.push({ id: Date.now().toString(), type: 'buy', units, price, total, commission, sourceId, noDeduct: invNoDeduct, date, notes });
     inv.priceHistory.push({ date, price });
     const latestPriceDate = (inv.priceHistory || []).reduce((latest, h) => h.date > latest ? h.date : latest, '');
     if (date >= latestPriceDate) inv.currentPrice = price;
   }
 
-  // Only record a transaction if money actually moved from an account
-  if (!invNoDeduct) {
-    const invName = addPositionMode === 'new' ? document.getElementById('inv-name').value.trim() : getPositionById(currentPositionId)?.name;
-    state.transactions.push({
-      id: (Date.now() + 1).toString(),
-      person: getPersonFromAccountId(sourceId), type: 'expense', accountId: sourceId,
-      category: 'Inversión',
-      desc: `Compra: ${invName}`,
-      amount: total + commission, date
-    });
-  }
+  // Always record a transaction so it counts as "invested this month" on the main card,
+  // even when the broker manages it automatically (noDeduct) and no balance actually moves
+  const invName = addPositionMode === 'new' ? document.getElementById('inv-name').value.trim() : getPositionById(currentPositionId)?.name;
+  state.transactions.push({
+    id: (Date.now() + 1).toString(),
+    person: getPersonFromAccountId(sourceId), type: 'expense', accountId: sourceId,
+    category: 'Inversión',
+    desc: `Compra: ${invName}`,
+    amount: total + commission, date, noDeduct: invNoDeduct
+  });
 
   saveState();
   closeModal('modalAddPosition');
@@ -10487,6 +10574,7 @@ function renderContributions() {
 }
 
 function checkPendingContributions() {
+  if (state.notifications && state.notifications.contributions === false) return;
   const today   = new Date().toISOString().split('T')[0];
   const pending = (state.contributions || []).filter(c => c.nextDate <= today);
   if (!pending.length) return;
@@ -12044,7 +12132,29 @@ function openSettings() {
   renderCategoryChips();
   renderSettingsProfiles();
   updateThemeButtons(localStorage.getItem('finanzas_theme') || 'aurora');
+  renderNotifToggles();
   document.getElementById('modalSettings').classList.add('open');
+}
+
+function renderNotifToggles() {
+  if (!state.notifications) state.notifications = { subscriptions: true, contributions: true };
+  ['subscriptions', 'contributions'].forEach(key => {
+    const btn = document.getElementById('notif-toggle-' + key);
+    const label = document.getElementById('notif-state-' + key);
+    const isOn = !!state.notifications[key];
+    if (btn) btn.classList.toggle('on', isOn);
+    if (label) {
+      label.classList.toggle('on', isOn);
+      label.textContent = isOn ? 'Activado' : 'Desactivado';
+    }
+  });
+}
+
+function toggleNotifSetting(key) {
+  if (!state.notifications) state.notifications = { subscriptions: true, contributions: true };
+  state.notifications[key] = !state.notifications[key];
+  saveState();
+  renderNotifToggles();
 }
 
 function previewNames() {
@@ -13872,9 +13982,8 @@ function openEditInvMovement(positionId, movementId) {
 
   // Toggle state
   document.getElementById('eim-no-deduct-toggle').classList.toggle('active', eimNoDeduct);
-  document.getElementById('eim-account').style.opacity = eimNoDeduct ? '0.4' : '1';
 
-  // Populate accounts
+  // Populate accounts (always enabled — needed to attribute the investment to a person even without deducting)
   const accounts = [...(state.accounts.mario || []), ...(state.accounts.miri || [])];
   state.accounts.common.forEach(c => accounts.push({ ...c, name: c.name + ' (Común)' }));
   const currentId = mov.sourceId || mov.destId || '';
@@ -13894,7 +14003,6 @@ function updateEimTotal() {
 function toggleEimNoDeduct() {
   eimNoDeduct = !eimNoDeduct;
   document.getElementById('eim-no-deduct-toggle').classList.toggle('active', eimNoDeduct);
-  document.getElementById('eim-account').style.opacity = eimNoDeduct ? '0.4' : '1';
 }
 
 function saveEditInvMovement() {
@@ -13942,8 +14050,9 @@ function saveEditInvMovement() {
   mov.date     = newDate;
   mov.notes    = newNotes;
   mov.noDeduct = eimNoDeduct;
-  if (isBuy) mov.sourceId = eimNoDeduct ? null : newAccId;
-  else        mov.destId   = eimNoDeduct ? null : newAccId;
+  // The account is always kept, even with no-deduct, to attribute the investment to a person
+  if (isBuy) mov.sourceId = newAccId;
+  else        mov.destId   = newAccId;
 
   // Sync priceHistory: remove old entry (matched by old date+price), add updated one
   if (inv.priceHistory) {
@@ -13978,6 +14087,17 @@ function saveEditInvMovement() {
     tx.amount    = newTotal;
     tx.date      = newDate;
     tx.accountId = newAccId;
+    tx.person    = getPersonFromAccountId(newAccId);
+    tx.noDeduct  = eimNoDeduct;
+  } else if (isBuy) {
+    // Legacy no-deduct movement created before it could be linked to an account — create the transaction now
+    state.transactions.push({
+      id: (Date.now() + 2).toString(),
+      person: getPersonFromAccountId(newAccId), type: 'expense', accountId: newAccId,
+      category: 'Inversión',
+      desc: `Compra: ${inv.name}`,
+      amount: newTotal, date: newDate, noDeduct: eimNoDeduct
+    });
   }
 
   saveState();
