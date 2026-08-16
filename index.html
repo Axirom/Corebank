@@ -6677,6 +6677,17 @@ function readableAccentColor(hex) {
   return isDarkColor(hex) ? 'var(--text)' : hex;
 }
 
+// For chart fills (bars, legend swatches): dark account colors (e.g. near-black cards) blend
+// almost invisibly into the dark UI background. Blend toward white to keep them visible while
+// still preserving each account's hue — unlike readableAccentColor, which would collapse every
+// dark account to the same flat text color and make them indistinguishable from each other.
+function barSafeColor(hex) {
+  if (!hex || !hex.startsWith('#') || !isDarkColor(hex)) return hex;
+  const [r, g, b] = hexToRgb(hex);
+  const mix = c => c + (255 - c) * 0.55;
+  return rgbToHex(mix(r), mix(g), mix(b));
+}
+
 function renderAccounts(person) {
   const grid = document.getElementById(person + '-accounts-grid');
   const accounts = state.accounts[person];
@@ -13743,6 +13754,14 @@ function getAccountBalanceAtMonth(acc, monthKey) {
   return Math.max(0, bal);
 }
 
+// Earliest date we actually have data for an account (its first transaction).
+// Without this, reconstructing balance for months before the account had any activity
+// just repeats today's balance backwards, which looks like fake history.
+function getAccountFirstActivityDate(acc) {
+  const dates = state.transactions.filter(t => t.accountId === acc.id).map(t => t.date);
+  return dates.length ? dates.reduce((min, d) => d < min ? d : min) : null;
+}
+
 function changeAccDistYear(person, dir) {
   if (!window.accDistYear) window.accDistYear = { mario: new Date().getFullYear(), miri: new Date().getFullYear() };
   const newYear = window.accDistYear[person] + dir;
@@ -13786,11 +13805,21 @@ function renderAccDistChart(person) {
   const now = new Date();
   const currentKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
 
-  const series = accounts.map((acc, i) => ({
-    label: acc.name,
-    color: acc.color || ACCOUNT_COLORS[i % ACCOUNT_COLORS.length],
-    data: months.map(m => m.key > currentKey ? null : getAccountBalanceAtMonth(acc, m.key))
-  }));
+  const series = accounts.map((acc, i) => {
+    const firstDate = getAccountFirstActivityDate(acc);
+    return {
+      label: acc.name,
+      color: barSafeColor(acc.color || ACCOUNT_COLORS[i % ACCOUNT_COLORS.length]),
+      data: months.map(m => {
+        if (m.key > currentKey) return null;
+        const monthEnd = m.key + '-31';
+        // No known history before the account's first ever transaction — and if it has
+        // no transactions at all, we only really know its balance for the current month
+        if (firstDate ? monthEnd < firstDate : m.key !== currentKey) return null;
+        return getAccountBalanceAtMonth(acc, m.key);
+      })
+    };
+  });
 
   const hasData = series.some(s => s.data.some(v => v !== null && v > 0));
   if (!hasData) {
@@ -14055,6 +14084,17 @@ function dragTouchEnd(e) {
 
 // Cancel long press on scroll
 document.addEventListener('touchmove', () => { clearTimeout(longPressTimer); }, { passive: true });
+
+document.addEventListener('touchstart', e => {
+  if (typeof Chart === 'undefined' || !Chart.instances) return;
+  Object.values(Chart.instances).forEach(chart => {
+    if (chart.canvas && !chart.canvas.contains(e.target) && chart.tooltip && chart.tooltip.opacity > 0) {
+      chart.setActiveElements([]);
+      chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+      chart.update();
+    }
+  });
+}, { passive: true, capture: true });
 
 // ===================== COMPOUND INTEREST CALCULATOR =====================
 let calcChart = null;
