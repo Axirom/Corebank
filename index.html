@@ -4525,6 +4525,8 @@ body:not(.values-hidden) .account-rate-inline {
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">Ciclo</label>
         <select class="form-select" id="subCycle">
+          <option value="weekly">Semanal</option>
+          <option value="biweekly">Quincenal</option>
           <option value="monthly">Mensual</option>
           <option value="bimonthly">Bimensual</option>
           <option value="quarterly">Trimestral</option>
@@ -4624,6 +4626,11 @@ body:not(.values-hidden) .account-rate-inline {
       <input class="form-input" id="expense-reg-date" type="date">
     </div>
 
+    <div class="form-group">
+      <label class="form-label">Etiqueta / nota — opcional</label>
+      <input class="form-input" id="expense-reg-note" type="text" placeholder="Ej. factura de verano, mes con calefacción…">
+    </div>
+
     <button class="btn-submit" onclick="confirmRegisterExpense()">Confirmar</button>
   </div>
 </div>
@@ -4643,6 +4650,11 @@ body:not(.values-hidden) .account-rate-inline {
     <div class="form-group">
       <label class="form-label">Fecha</label>
       <input class="form-input" id="editpay-date" type="date">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Etiqueta / nota — opcional</label>
+      <input class="form-input" id="editpay-note" type="text" placeholder="Ej. factura de verano, mes con calefacción…">
     </div>
 
     <button class="btn-submit" onclick="saveEditPayment()">Guardar cambios</button>
@@ -7790,12 +7802,14 @@ function subLogoHTML(name, emoji, size = 28) {
   <span id="${id}_fb" style="font-size:${Math.round(size * 0.85)}px;line-height:1;display:none;">${fallback}</span>`;
 }
 
-const CYCLE_LABELS  = { monthly: 'Mensual', bimonthly: 'Bimensual', quarterly: 'Trimestral', biannual: 'Semestral', annual: 'Anual' };
+const CYCLE_LABELS  = { weekly: 'Semanal', biweekly: 'Quincenal', monthly: 'Mensual', bimonthly: 'Bimensual', quarterly: 'Trimestral', biannual: 'Semestral', annual: 'Anual' };
 const CYCLE_MONTHS  = { monthly: 1, bimonthly: 2, quarterly: 3, biannual: 6, annual: 12 };
-const CYCLE_MONTHLY = { monthly: 1, bimonthly: 1/2, quarterly: 1/3, biannual: 1/6, annual: 1/12 };
+const CYCLE_MONTHLY = { weekly: 52/12, biweekly: 26/12, monthly: 1, bimonthly: 1/2, quarterly: 1/3, biannual: 1/6, annual: 1/12 };
 
 function subNextDateAfter(dateStr, cycle) {
   const d = new Date(dateStr + 'T12:00:00');
+  if (cycle === 'weekly')   { d.setDate(d.getDate() + 7);  return d.toISOString().split('T')[0]; }
+  if (cycle === 'biweekly') { d.setDate(d.getDate() + 14); return d.toISOString().split('T')[0]; }
   d.setMonth(d.getMonth() + (CYCLE_MONTHS[cycle] || 1));
   return d.toISOString().split('T')[0];
 }
@@ -8097,9 +8111,9 @@ function renderSubHistory(sub) {
     const d = new Date(p.date + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
     return `<div class="sub-history-item" style="cursor:pointer;" onclick="openEditPayment('${detailSubPerson}','${detailSubId}','${p.id}')">
       <div style="width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;flex-shrink:0;">${subLogoHTML(sub.name, sub.emoji, 18)}</div>
-      <div style="flex:1;">
+      <div style="flex:1;min-width:0;">
         <div style="font-size:13px;font-weight:500;">${getAccountName(p.accountId)}</div>
-        <div style="font-size:11px;color:var(--muted);">${d}</div>
+        <div style="font-size:11px;color:var(--muted);">${d}${p.note ? ` · ${p.note}` : ''}</div>
       </div>
       <div style="font-weight:600;color:var(--expense);">-€${fmt(p.amount)}</div>
       <div style="color:var(--muted);font-size:12px;margin-left:6px;">›</div>
@@ -8166,6 +8180,7 @@ function openRegisterExpense(person, subId, origin = 'detail') {
   document.getElementById('expense-reg-name').textContent = sub.name;
   document.getElementById('expense-reg-amount').value = '';
   document.getElementById('expense-reg-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('expense-reg-note').value = '';
 
   if (origin === 'detail')  closeModal('modalSubDetail');
   if (origin === 'pending') closeModal('modalPendingSubs');
@@ -8180,6 +8195,7 @@ function confirmRegisterExpense() {
 
   const amount = parseFloat(document.getElementById('expense-reg-amount').value) || 0;
   const date   = document.getElementById('expense-reg-date').value;
+  const note   = document.getElementById('expense-reg-note').value.trim();
 
   if (amount <= 0) { showToast('Introduce el importe', 'error'); return; }
   if (!date)       { showToast('Indica la fecha', 'error'); return; }
@@ -8195,13 +8211,13 @@ function confirmRegisterExpense() {
     type: 'expense',
     accountId: sub.accountId,
     category: 'Gasto corriente',
-    desc: `Gasto: ${sub.name}`,
+    desc: `Gasto: ${sub.name}${note ? ` — ${note}` : ''}`,
     amount,
     date
   });
 
   if (!sub.payments) sub.payments = [];
-  sub.payments.push({ id: paymentId, amount, accountId: sub.accountId, date });
+  sub.payments.push({ id: paymentId, amount, accountId: sub.accountId, date, note });
   sub.nextDate = subNextDateAfter(sub.nextDate, sub.cycle);
 
   saveState();
@@ -8237,6 +8253,7 @@ function openEditPayment(person, subId, paymentId) {
   document.getElementById('editpay-name').textContent = sub.name;
   document.getElementById('editpay-amount').value = payment.amount;
   document.getElementById('editpay-date').value = payment.date;
+  document.getElementById('editpay-note').value = payment.note || '';
 
   closeModal('modalSubDetail');
   document.getElementById('modalEditPayment').classList.add('open');
@@ -8251,6 +8268,7 @@ function saveEditPayment() {
 
   const newAmount = parseFloat(document.getElementById('editpay-amount').value) || 0;
   const newDate   = document.getElementById('editpay-date').value;
+  const newNote   = document.getElementById('editpay-note').value.trim();
 
   if (newAmount <= 0) { showToast('Introduce el importe', 'error'); return; }
   if (!newDate)       { showToast('Indica la fecha', 'error'); return; }
@@ -8262,10 +8280,16 @@ function saveEditPayment() {
 
   // Keep the linked transaction in sync, if it still exists
   const txn = state.transactions.find(t => t.id === paymentId);
-  if (txn) { txn.amount = newAmount; txn.date = newDate; }
+  if (txn) {
+    txn.amount = newAmount;
+    txn.date   = newDate;
+    const baseDesc = txn.desc.split(' — ')[0];
+    txn.desc = newNote ? `${baseDesc} — ${newNote}` : baseDesc;
+  }
 
   payment.amount = newAmount;
   payment.date   = newDate;
+  payment.note   = newNote;
 
   saveState();
   closeModal('modalEditPayment');
