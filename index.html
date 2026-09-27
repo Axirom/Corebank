@@ -2854,6 +2854,12 @@ body:not(.values-hidden) .account-rate-inline {
         </div>
       </div>
 
+      <!-- Realized P&L (accumulated from position sales) -->
+      <div style="display:flex;justify-content:space-between;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:16px;">
+        <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">Ganancia/pérdida acumulada</span>
+        <span id="inv-realized-pl" style="font-size:16px;font-weight:700;">€0,00</span>
+      </div>
+
       <!-- Period return bar -->
       <div style="display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin-bottom:16px;" id="inv-period-bar">
         <button class="inv-period-btn active" data-period="1M" onclick="selectInvPeriod('1M',this)">1M</button>
@@ -7961,6 +7967,13 @@ function subDisplayAmount(sub) {
   return payments.reduce((latest, p) => (!latest || p.date > latest.date) ? p : latest, null).amount;
 }
 
+function subAverageAmount(sub) {
+  if ((sub.kind || 'subscription') !== 'expense' || sub.amountMode !== 'variable') return sub.amount;
+  const payments = sub.payments || [];
+  if (!payments.length) return 0;
+  return payments.reduce((s, p) => s + p.amount, 0) / payments.length;
+}
+
 function renderSubscriptions(person) {
   if (!state.subscriptions) state.subscriptions = { mario: [], miri: [] };
 
@@ -7985,7 +7998,7 @@ function renderSubGroup(person, other, list, prefix, emptyMsg) {
   const totalBar = document.getElementById(person + '-' + barPrefix + '-total-bar');
   const totalEl  = document.getElementById(person + '-' + barPrefix + '-monthly');
   if (list.length > 0 && totalBar && totalEl) {
-    const monthly = list.reduce((s, sub) => s + subMonthlyEquiv(subDisplayAmount(sub), sub.cycle), 0);
+    const monthly = list.reduce((s, sub) => s + subMonthlyEquiv(subAverageAmount(sub), sub.cycle), 0);
     const hasVariable = list.some(s => s.amountMode === 'variable');
     totalEl.textContent = '€' + fmt(monthly) + '/mes' + (hasVariable ? ' aprox.' : '');
     totalBar.style.display = 'flex';
@@ -8014,6 +8027,7 @@ function renderSubGroup(person, other, list, prefix, emptyMsg) {
     const clickPerson = fromOther ? other : person;
     const isVariable  = sub.amountMode === 'variable';
     const displayAmt  = subDisplayAmount(sub);
+    const avgAmt      = isVariable ? subAverageAmount(sub) : 0;
 
     return `<div class="sub-card${overdue ? ' overdue' : ''}${sub.isCommon ? ' common-card' : ''}" onclick="openSubDetail('${clickPerson}','${sub.id}')">
       <div class="sub-emoji">${subLogoHTML(sub.name, sub.emoji, 26)}</div>
@@ -8032,6 +8046,7 @@ function renderSubGroup(person, other, list, prefix, emptyMsg) {
       <div class="sub-amount">
         <div class="sub-amount-val">€${fmt(displayAmt)}</div>
         <div class="sub-amount-cycle">${isVariable ? 'último' : (CYCLE_LABELS[sub.cycle]?.toLowerCase() || '')}</div>
+        ${isVariable ? `<div style="font-size:9px;color:var(--muted);margin-top:2px;">media €${fmt(avgAmt)}</div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -8051,13 +8066,14 @@ function openSubDetail(person, subId) {
   const dateStr    = dateObj.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
   const totalPaid  = (sub.payments || []).reduce((s, p) => s + p.amount, 0);
   const lastAmount = subDisplayAmount(sub);
+  const avgAmount  = isVariable ? subAverageAmount(sub) : 0;
 
   document.getElementById('subdetail-emoji').innerHTML = subLogoHTML(sub.name, sub.emoji, 34);
   document.getElementById('subdetail-name').textContent   = sub.name;
   document.getElementById('subdetail-desc').textContent   = sub.desc || '';
   document.getElementById('subdetail-desc').style.display = sub.desc ? 'block' : 'none';
   document.getElementById('subdetail-amount').textContent = isVariable
-    ? (lastAmount > 0 ? '€' + fmt(lastAmount) + ' (último)' : '—')
+    ? (lastAmount > 0 ? '€' + fmt(lastAmount) + ' (último) · media €' + fmt(avgAmount) : '—')
     : '€' + fmt(sub.amount);
   document.getElementById('subdetail-account').textContent = getAccountName(sub.accountId);
   document.getElementById('subdetail-total-paid').textContent = '€' + fmt(totalPaid);
@@ -12018,6 +12034,13 @@ function renderInvestments() {
   document.getElementById('inv-total-return').style.color    = returnColor;
   document.getElementById('inv-total-positions').textContent = activeInvs.length;
 
+  // Realized P&L: accumulated gain/loss from all sales, respecting the current person/type filters
+  const realizedPL = activeInvs.reduce((s, inv) =>
+    s + (inv.movements || []).filter(m => m.type === 'sell').reduce((s2, m) => s2 + (m.pl || 0), 0), 0);
+  const realizedEl = document.getElementById('inv-realized-pl');
+  realizedEl.textContent = (realizedPL >= 0 ? '+' : '-') + '€' + fmt(Math.abs(realizedPL));
+  realizedEl.style.color = realizedPL > 0 ? 'var(--income)' : realizedPL < 0 ? 'var(--expense)' : 'var(--text)';
+
   if (state.investments.length === 0) {
     el.innerHTML = `<div class="deposit-no-items">Sin posiciones registradas.<br>Pulsa "+ Añadir" para crear la primera.</div>`;
     return;
@@ -14917,10 +14940,19 @@ function renderInOutChart(person) {
 }
 
 function renderSavingChart(person) {
-  const id = person + '-chart-saving';
+  const id     = person + '-chart-saving';
   destroyChart(id);
-  const ctx = document.getElementById(id);
-  if (!ctx || ctx.offsetWidth === 0) return;
+  const ctx    = document.getElementById(id);
+  const msgEl  = document.getElementById(person + '-saving-msg');
+  const wrapEl = document.getElementById(person + '-saving-wrap');
+  if (!ctx) return;
+
+  // Make sure the wrapper is visible before measuring it — a previous "no data"
+  // render may have hidden it, which would make offsetWidth read 0 here even
+  // though this tab is actually active, silently blocking all future renders
+  if (wrapEl) wrapEl.style.display = 'block';
+  if (msgEl)  msgEl.style.display  = 'none';
+  if (ctx.offsetWidth === 0) return;
 
   ensureSnapshots();
   const allSnaps = state.snapshots[person] || [];
@@ -14928,7 +14960,6 @@ function renderSavingChart(person) {
   // Year selector state
   if (!window.savingYear) window.savingYear = { mario: new Date().getFullYear(), miri: new Date().getFullYear() };
   const year = window.savingYear[person];
-  const yearStr = String(year);
 
   // Update label and next button
   const labelEl = document.getElementById(person + '-saving-year-label');
@@ -14936,14 +14967,25 @@ function renderSavingChart(person) {
   if (labelEl) labelEl.textContent = year;
   if (nextBtn)  nextBtn.disabled = year >= new Date().getFullYear();
 
-  // Filter snapshots for this year
-  const snaps = allSnaps.filter(s => s.month && s.month.startsWith(yearStr));
+  const now = new Date();
+  const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-  const msgEl  = document.getElementById(person + '-saving-msg');
-  const wrapEl = document.getElementById(person + '-saving-wrap');
+  // Build every month of the selected year (Jan → Dec, capped at the current
+  // month for the current year) so the chart always shows the whole year,
+  // not just whichever months happen to have a saved snapshot
+  const months = [];
+  for (let m = 0; m < 12; m++) {
+    const key = `${year}-${String(m + 1).padStart(2, '0')}`;
+    if (key > currentKey) break;
+    months.push({ key, label: new Date(year, m, 1).toLocaleDateString('es-ES', { month: 'short' }) });
+  }
 
-  if (snaps.length < 2) {
-    if (msgEl)  { msgEl.innerHTML = snaps.length === 0
+  const snapsByMonth = {};
+  allSnaps.forEach(s => { snapsByMonth[s.month] = s; });
+  const availableCount = months.filter(m => snapsByMonth[m.key]).length;
+
+  if (availableCount < 2) {
+    if (msgEl)  { msgEl.innerHTML = availableCount === 0
       ? `📊 Sin datos para ${year}.<br><span style="opacity:0.6;">Usa las flechas para ver otros años.</span>`
       : '📊 Los datos se irán acumulando<br>conforme pase el tiempo.';
       msgEl.style.display = 'block'; }
@@ -14953,13 +14995,11 @@ function renderSavingChart(person) {
   if (msgEl)  msgEl.style.display  = 'none';
   if (wrapEl) wrapEl.style.display = 'block';
 
-  const labels = snaps.map(s => {
-    const [y, m] = s.month.split('-');
-    return new Date(+y, +m - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' });
-  });
-  const balances  = snaps.map(s => s.balance);
-  const deposits  = snaps.map(s => s.deposits || 0);
-  const totals    = balances.map((b, i) => b + deposits[i]);
+  const labels   = months.map(m => m.label);
+  const balances = months.map(m => snapsByMonth[m.key] ? snapsByMonth[m.key].balance : null);
+  const totals   = months.map((m, i) => balances[i] === null
+    ? null
+    : balances[i] + (snapsByMonth[m.key].deposits || 0));
 
   const c = getChartColors();
   chartInstances[id] = new Chart(ctx, {
@@ -14976,7 +15016,8 @@ function renderSavingChart(person) {
           pointRadius: 4,
           pointBackgroundColor: c.accent,
           fill: true,
-          tension: 0.3
+          tension: 0.3,
+          spanGaps: false
         },
         {
           label: 'Saldo cuentas',
@@ -14986,7 +15027,8 @@ function renderSavingChart(person) {
           pointRadius: 3,
           borderDash: [4, 3],
           fill: false,
-          tension: 0.3
+          tension: 0.3,
+          spanGaps: false
         }
       ]
     },
@@ -15037,7 +15079,14 @@ function renderAccDistChart(person) {
   const msgEl  = document.getElementById(person + '-accdist-msg');
   const wrapEl = document.getElementById(person + '-accdist-wrap');
   const legEl  = document.getElementById(person + '-accdist-legend');
-  if (!ctx || ctx.offsetWidth === 0) return;
+  if (!ctx) return;
+
+  // Make sure the wrapper is visible before measuring it — a previous "no data"
+  // render may have hidden it, which would make offsetWidth read 0 here even
+  // though this tab is actually active, silently blocking all future renders
+  if (wrapEl) wrapEl.style.display = 'block';
+  if (msgEl)  msgEl.style.display  = 'none';
+  if (ctx.offsetWidth === 0) return;
 
   if (!window.accDistYear) window.accDistYear = { mario: new Date().getFullYear(), miri: new Date().getFullYear() };
   const year = window.accDistYear[person];
