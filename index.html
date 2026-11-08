@@ -7536,12 +7536,12 @@ function renderGlobalPatrimonyChart() {
           y: {
             stack: 'patr', stackWeight: 3, position: 'left', beginAtZero: true, grace: '8%',
             grid: { color: 'rgba(255,255,255,0.05)' },
-            ticks: { maxTicksLimit: 5, callback: v => '€' + Math.round(Number(v)).toLocaleString('es-ES') }
+            ticks: { maxTicksLimit: 5, callback: (v, i, t) => i === t.length - 1 ? '' : '€' + Math.round(Number(v)).toLocaleString('es-ES') } // top tick hidden: it touches the bars axis
           },
           yd: {
             stack: 'patr', stackWeight: 2, position: 'left', grace: '45%',
             grid: { color: ctx => ctx.tick && ctx.tick.value === 0 ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.05)' },
-            ticks: { maxTicksLimit: 3, callback: v => fmtDelta(Number(v)) }
+            ticks: { maxTicksLimit: 3, callback: (v, i) => i === 0 ? '' : (Number(v) === 0 ? '0' : fmtDelta(Number(v))) } // bottom tick hidden: it touches the line axis
           }
         }
       },
