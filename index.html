@@ -3064,8 +3064,8 @@ body:not(.values-hidden) .account-rate-inline {
         <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;justify-content:center;" id="global-chart-legend"></div>
         </div>
         <div class="carousel-slide">
-          <div class="chart-wrap" id="global-line-wrap" style="height:240px;"><canvas id="global-chart-line"></canvas></div>
-          <div style="text-align:center;font-size:10px;color:var(--muted);margin-top:8px;">Cifras entre puntos: variación respecto al periodo anterior</div>
+          <div class="chart-wrap" id="global-line-wrap" style="height:340px;"><canvas id="global-chart-line"></canvas></div>
+          <div id="global-line-note" style="text-align:center;font-size:10px;color:var(--muted);margin-top:8px;"></div>
         </div>
         </div></div>
       </div>
@@ -7446,11 +7446,18 @@ function renderGlobalPatrimonyChart() {
     }
   });
 
-  // ---- Slide 2: total patrimony as a line, with the change between consecutive points ----
+  // ---- Slide 2: total patrimony (line, top) + change vs previous period (bars, bottom) ----
   const totalData = months.map((_, i) => {
     const vals = series.map(sr => sr.data[i]).filter(v => v !== null && v !== undefined);
     return vals.length ? vals.reduce((a, b) => a + b, 0) : null;
   });
+  const deltaData = totalData.map((v, i) =>
+    (i === 0 || v == null || totalData[i - 1] == null) ? null : v - totalData[i - 1]);
+  const noteEl = document.getElementById('global-line-note');
+  if (noteEl) noteEl.textContent = globalViewMode === 'years'
+    ? 'Barras: variación del patrimonio respecto al año anterior'
+    : 'Barras: variación del patrimonio respecto al mes anterior';
+
   const lineCtx = document.getElementById('global-chart-line');
   if (lineCtx) {
     const lc   = getChartColors();
@@ -7461,66 +7468,81 @@ function renderGlobalPatrimonyChart() {
     const fmtDelta = v => {
       const a = Math.abs(v);
       const t = a >= 1000 ? (a / 1000).toFixed(1).replace('.', ',').replace(',0', '') + 'k' : String(Math.round(a));
-      return (v >= 0 ? '+' : '\u2212') + t;
+      return (v >= 0 ? '+' : '−') + t;
     };
+    const xLabels = months.map(m => globalViewMode === 'months' ? m.label.replace('.', '').slice(0, 3) : m.label);
+
+    // Vertical value labels at the tip of each change bar (vertical text fits 12 months side by side)
     const deltaLabels = {
       id: 'globalDeltaLabels',
       afterDatasetsDraw(chart) {
-        const meta = chart.getDatasetMeta(0);
-        const data = chart.data.datasets[0].data;
-        const cx = chart.ctx;
+        const ds   = chart.data.datasets[1];
+        const meta = chart.getDatasetMeta(1);
+        const cx   = chart.ctx;
         cx.save();
         cx.font = `600 9px ${fontFam}`;
-        cx.textAlign = 'center';
         cx.textBaseline = 'middle';
-        for (let i = 1; i < data.length; i++) {
-          if (data[i] == null || data[i - 1] == null) continue;
-          const d  = data[i] - data[i - 1];
-          const p0 = meta.data[i - 1], p1 = meta.data[i];
-          if (!p0 || !p1) continue;
-          const x = (p0.x + p1.x) / 2;
-          const y = (p0.y + p1.y) / 2;
-          const off = 11 + (i % 2) * 9;          // stagger so neighbours don't collide
-          cx.fillStyle = d >= 0 ? upC : dnC;
-          cx.fillText(fmtDelta(d), x, d >= 0 ? y + off : y - off); // rising → below the line, falling → above
-        }
+        meta.data.forEach((bar, i) => {
+          const v = ds.data[i];
+          if (v == null) return;
+          cx.save();
+          cx.translate(bar.x, v >= 0 ? bar.y - 4 : bar.y + 4);
+          cx.rotate(-Math.PI / 2);
+          cx.fillStyle = v >= 0 ? upC : dnC;
+          cx.textAlign = v >= 0 ? 'left' : 'right';
+          cx.fillText(fmtDelta(v), 0, 0);
+          cx.restore();
+        });
         cx.restore();
       }
     };
+
     globalLineChart = new Chart(lineCtx, {
-      type: 'line',
       data: {
-        labels: months.map(m => m.label),
-        datasets: [{
-          label: 'Patrimonio total',
-          data: totalData,
-          borderColor: lc.accent,
-          backgroundColor: lc.accent.replace('0.9)', '0.08)'),
-          borderWidth: 2, pointRadius: 3, pointHoverRadius: 5,
-          pointBackgroundColor: lc.accent,
-          fill: true, tension: 0.3, spanGaps: false
-        }]
+        labels: xLabels,
+        datasets: [
+          {
+            type: 'line', label: 'Patrimonio total', yAxisID: 'y', order: 1,
+            data: totalData,
+            borderColor: lc.accent,
+            backgroundColor: lc.accent.replace('0.9)', '0.08)'),
+            borderWidth: 2, pointRadius: 3, pointHoverRadius: 5,
+            pointBackgroundColor: lc.accent,
+            fill: true, tension: 0.3, spanGaps: false
+          },
+          {
+            type: 'bar', label: 'Variación', yAxisID: 'yd', order: 2,
+            data: deltaData,
+            backgroundColor: deltaData.map(v => v == null ? 'transparent' : (v >= 0 ? upC : dnC) + 'cc'),
+            borderRadius: 3, barPercentage: 0.6, categoryPercentage: 0.9
+          }
+        ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        layout: { padding: { top: 22, bottom: 22, left: 2, right: 14 } },
+        layout: { padding: { right: 6 } },
         interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: { display: false },
           tooltip: { callbacks: {
             title: items => months[items[0].dataIndex].title,
-            label: c => ` Patrimonio: \u20ac${fmt(c.raw)}`,
-            afterLabel: c => {
-              const i = c.dataIndex;
-              if (i === 0 || totalData[i - 1] == null || totalData[i] == null) return '';
-              const d = totalData[i] - totalData[i - 1];
-              return ` ${d >= 0 ? 'Variaci\u00f3n: +' : 'Variaci\u00f3n: -'}\u20ac${fmt(Math.abs(d))}`;
-            }
+            label: c => c.dataset.type === 'bar'
+              ? (c.raw == null ? null : ` Variación: ${c.raw >= 0 ? '+' : '-'}€${fmt(Math.abs(c.raw))}`)
+              : ` Patrimonio: €${fmt(c.raw)}`
           }}
         },
         scales: {
-          x: { grid: { color: 'rgba(255,255,255,0.04)' } },
-          y: { grace: '8%', grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { callback: v => '\u20ac' + Math.round(Number(v)).toLocaleString('es-ES') } }
+          x: { offset: true, grid: { display: false }, ticks: { autoSkip: false, maxRotation: 0, font: { size: 10 } } },
+          y: {
+            stack: 'patr', stackWeight: 3, position: 'left', beginAtZero: true, grace: '8%',
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            ticks: { maxTicksLimit: 5, callback: v => '€' + Math.round(Number(v)).toLocaleString('es-ES') }
+          },
+          yd: {
+            stack: 'patr', stackWeight: 2, position: 'left', grace: '45%',
+            grid: { color: ctx => ctx.tick && ctx.tick.value === 0 ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.05)' },
+            ticks: { maxTicksLimit: 3, callback: v => fmtDelta(Number(v)) }
+          }
         }
       },
       plugins: [deltaLabels]
