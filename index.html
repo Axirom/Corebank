@@ -1786,8 +1786,10 @@ body.theme-jade::before {
   will-change: transform;
 }
 .carousel-slide {
+  flex: 0 0 100%;
   min-width: 100%;
-  flex-shrink: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .carousel-dots {
   display: flex;
@@ -3038,23 +3040,34 @@ body:not(.values-hidden) .account-rate-inline {
       <!-- Patrimony chart -->
       <div class="chart-card" style="margin-bottom:16px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-          <div class="chart-card-title" style="margin-bottom:0;">Evolución del patrimonio</div>
+          <div class="chart-card-title" id="global-slide-title" style="margin-bottom:0;">Evolución del patrimonio</div>
           <div id="global-year-nav" style="display:flex;align-items:center;gap:6px;">
             <button class="month-picker-year-btn" onclick="changeGlobalYear(-1)" style="width:30px;height:30px;font-size:16px;">‹</button>
             <span id="global-chart-year-label" style="font-size:14px;font-weight:600;color:var(--global);min-width:36px;text-align:center;"></span>
             <button class="month-picker-year-btn" onclick="changeGlobalYear(1)" id="global-chart-year-next" style="width:30px;height:30px;font-size:16px;">›</button>
           </div>
         </div>
-        <div style="display:flex;gap:6px;margin:8px 0 10px;">
+        <div style="display:flex;gap:6px;margin:8px 0 10px;align-items:center;">
           <button id="global-view-months" onclick="setGlobalView('months')" style="padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;border:1px solid var(--border);background:transparent;color:var(--muted);">Meses</button>
           <button id="global-view-years" onclick="setGlobalView('years')" style="padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;border:1px solid var(--border);background:transparent;color:var(--muted);">Años</button>
+          <div class="carousel-dots" style="margin-left:auto;">
+            <span class="carousel-dot active" id="global-dot-0" onclick="goGlobalSlide(0)"></span>
+            <span class="carousel-dot" id="global-dot-1" onclick="goGlobalSlide(1)"></span>
+          </div>
         </div>
+        <div class="carousel-track-outer" id="global-carousel-outer"><div class="carousel-track" id="global-carousel-track"><div class="carousel-slide">
         <div id="global-chart-msg" style="display:none;text-align:center;padding:24px;color:var(--muted);font-size:12px;line-height:1.8;"></div>
         <div class="chart-wrap" id="global-chart-wrap" style="height:220px;"><canvas id="global-chart-patrimony"></canvas></div>
         <!-- Resumen táctil del mes seleccionado -->
         <div id="global-chart-tap-summary" style="display:none;margin-top:10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;font-size:12px;"></div>
         <!-- Legend -->
         <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;justify-content:center;" id="global-chart-legend"></div>
+        </div>
+        <div class="carousel-slide">
+          <div class="chart-wrap" id="global-line-wrap" style="height:240px;"><canvas id="global-chart-line"></canvas></div>
+          <div style="text-align:center;font-size:10px;color:var(--muted);margin-top:8px;">Cifras entre puntos: variación respecto al periodo anterior</div>
+        </div>
+        </div></div>
       </div>
 
       <div class="global-cards">
@@ -7163,6 +7176,43 @@ let globalYear = new Date().getFullYear();
 let globalPatrimonyChart = null;
 
 let globalViewMode = 'months'; // 'months' | 'years'
+let globalSlideIndex = 0;
+let globalLineChart  = null;
+const GLOBAL_SLIDE_TITLES = ['Evolución del patrimonio', 'Patrimonio total'];
+
+function goGlobalSlide(index) {
+  globalSlideIndex = index;
+  const track = document.getElementById('global-carousel-track');
+  if (track) track.style.transform = `translateX(-${index * 100}%)`;
+  [0, 1].forEach(i => {
+    const d = document.getElementById('global-dot-' + i);
+    if (d) d.classList.toggle('active', i === index);
+  });
+  const t = document.getElementById('global-slide-title');
+  if (t) t.textContent = GLOBAL_SLIDE_TITLES[index];
+  if (globalLineChart) globalLineChart.resize();
+  if (globalPatrimonyChart) globalPatrimonyChart.resize();
+}
+
+function initGlobalCarouselSwipe() {
+  const outer = document.getElementById('global-carousel-outer');
+  if (!outer || outer._swipeInit) return;
+  outer._swipeInit = true;
+  let startX = 0, startY = 0, dragging = false;
+  outer.addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY; dragging = true;
+  }, { passive: true });
+  outer.addEventListener('touchend', e => {
+    if (!dragging) return;
+    dragging = false;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) {
+      if (dx < 0 && globalSlideIndex < 1) goGlobalSlide(1);
+      if (dx > 0 && globalSlideIndex > 0) goGlobalSlide(0);
+    }
+  }, { passive: true });
+}
 
 function setGlobalView(mode) {
   globalViewMode = mode;
@@ -7190,6 +7240,8 @@ function changeGlobalYear(dir) {
 
 function renderGlobalPatrimonyChart() {
   if (globalPatrimonyChart) { globalPatrimonyChart.destroy(); globalPatrimonyChart = null; }
+  if (globalLineChart)      { globalLineChart.destroy();      globalLineChart = null; }
+  initGlobalCarouselSwipe();
   const ctx    = document.getElementById('global-chart-patrimony');
   const msgEl  = document.getElementById('global-chart-msg');
   const wrapEl = document.getElementById('global-chart-wrap');
@@ -7393,6 +7445,87 @@ function renderGlobalPatrimonyChart() {
       }
     }
   });
+
+  // ---- Slide 2: total patrimony as a line, with the change between consecutive points ----
+  const totalData = months.map((_, i) => {
+    const vals = series.map(sr => sr.data[i]).filter(v => v !== null && v !== undefined);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) : null;
+  });
+  const lineCtx = document.getElementById('global-chart-line');
+  if (lineCtx) {
+    const lc   = getChartColors();
+    const css  = getComputedStyle(document.documentElement);
+    const upC  = (css.getPropertyValue('--income')  || '').trim() || '#4ade80';
+    const dnC  = (css.getPropertyValue('--expense') || '').trim() || '#f87171';
+    const fontFam = getComputedStyle(document.body).fontFamily;
+    const fmtDelta = v => {
+      const a = Math.abs(v);
+      const t = a >= 1000 ? (a / 1000).toFixed(1).replace('.', ',').replace(',0', '') + 'k' : String(Math.round(a));
+      return (v >= 0 ? '+' : '\u2212') + t;
+    };
+    const deltaLabels = {
+      id: 'globalDeltaLabels',
+      afterDatasetsDraw(chart) {
+        const meta = chart.getDatasetMeta(0);
+        const data = chart.data.datasets[0].data;
+        const cx = chart.ctx;
+        cx.save();
+        cx.font = `600 9px ${fontFam}`;
+        cx.textAlign = 'center';
+        cx.textBaseline = 'middle';
+        for (let i = 1; i < data.length; i++) {
+          if (data[i] == null || data[i - 1] == null) continue;
+          const d  = data[i] - data[i - 1];
+          const p0 = meta.data[i - 1], p1 = meta.data[i];
+          if (!p0 || !p1) continue;
+          const x = (p0.x + p1.x) / 2;
+          const y = (p0.y + p1.y) / 2;
+          const off = 11 + (i % 2) * 9;          // stagger so neighbours don't collide
+          cx.fillStyle = d >= 0 ? upC : dnC;
+          cx.fillText(fmtDelta(d), x, d >= 0 ? y + off : y - off); // rising → below the line, falling → above
+        }
+        cx.restore();
+      }
+    };
+    globalLineChart = new Chart(lineCtx, {
+      type: 'line',
+      data: {
+        labels: months.map(m => m.label),
+        datasets: [{
+          label: 'Patrimonio total',
+          data: totalData,
+          borderColor: lc.accent,
+          backgroundColor: lc.accent.replace('0.9)', '0.08)'),
+          borderWidth: 2, pointRadius: 3, pointHoverRadius: 5,
+          pointBackgroundColor: lc.accent,
+          fill: true, tension: 0.3, spanGaps: false
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        layout: { padding: { top: 22, bottom: 22, left: 2, right: 14 } },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: {
+            title: items => months[items[0].dataIndex].title,
+            label: c => ` Patrimonio: \u20ac${fmt(c.raw)}`,
+            afterLabel: c => {
+              const i = c.dataIndex;
+              if (i === 0 || totalData[i - 1] == null || totalData[i] == null) return '';
+              const d = totalData[i] - totalData[i - 1];
+              return ` ${d >= 0 ? 'Variaci\u00f3n: +' : 'Variaci\u00f3n: -'}\u20ac${fmt(Math.abs(d))}`;
+            }
+          }}
+        },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,0.04)' } },
+          y: { grace: '8%', grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { callback: v => '\u20ac' + Math.round(Number(v)).toLocaleString('es-ES') } }
+        }
+      },
+      plugins: [deltaLabels]
+    });
+  }
 
   // Render custom legend
   if (legEl) {
@@ -13134,7 +13267,7 @@ function goInvSlide(index) {
   invSlideIndex = index;
   const track = document.getElementById('inv-carousel-track');
   if (track) track.style.transform = `translateX(-${index * 100}%)`;
-  document.querySelectorAll('.carousel-dot').forEach((d, i) => {
+  document.querySelectorAll('[id^="inv-dot-"]').forEach((d, i) => {
     d.classList.toggle('active', i === index);
   });
   const titleEl = document.getElementById('inv-slide-title');
@@ -13143,7 +13276,7 @@ function goInvSlide(index) {
 
 // Swipe support
 function initInvCarouselSwipe() {
-  const outer = document.querySelector('.carousel-track-outer');
+  const outer = document.getElementById('inv-carousel-track')?.parentElement;
   if (!outer || outer._swipeInit) return;
   outer._swipeInit = true;
   let startX = 0, startY = 0, isDragging = false;
