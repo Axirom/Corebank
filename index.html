@@ -4703,6 +4703,11 @@ body:not(.values-hidden) .account-rate-inline {
     </div>
 
     <div class="form-group">
+      <label class="form-label">Cuenta</label>
+      <select class="form-select" id="expense-reg-account"></select>
+    </div>
+
+    <div class="form-group">
       <label class="form-label">Fecha</label>
       <input class="form-input" id="expense-reg-date" type="date">
     </div>
@@ -5494,6 +5499,23 @@ function migrateState(parsed) {
       inv.lots = inv.lots.filter(l => l.units > 0);
     }
   });
+  // Dividends used to be saved under "Inversión" (excluded from income). Reclassify each one as
+  // "Dividendos", matched to its dividend movement by date + account + net amount. Unmatched ones are left untouched.
+  if (Array.isArray(parsed.transactions)) {
+    const claimed = new Set(parsed.transactions.map(t => t.invMovId).filter(Boolean));
+    const divMoves = [];
+    (parsed.investments || []).forEach(inv =>
+      (inv.movements || []).forEach(m => { if (m.type === 'dividend') divMoves.push(m); }));
+    parsed.transactions.forEach(t => {
+      if (t.category !== 'Inversión' || t.type !== 'income' || !(t.desc || '').startsWith('Dividendo: ')) return;
+      const m = divMoves.find(d => !claimed.has(d.id) && d.date === t.date && d.accId === t.accountId &&
+                                   Math.abs((d.net || 0) - t.amount) < 0.001);
+      if (!m) return;
+      claimed.add(m.id);
+      t.category = 'Dividendos';
+      t.invMovId = m.id;
+    });
+  }
   if (!parsed.subscriptions) parsed.subscriptions = { mario: [], miri: [] };
   if (!parsed.subscriptions.mario) parsed.subscriptions.mario = [];
   if (!parsed.subscriptions.miri)  parsed.subscriptions.miri  = [];
@@ -7536,12 +7558,12 @@ function renderGlobalPatrimonyChart() {
           y: {
             stack: 'patr', stackWeight: 3, position: 'left', beginAtZero: true, grace: '8%',
             grid: { color: 'rgba(255,255,255,0.05)' },
-            ticks: { maxTicksLimit: 5, callback: (v, i, t) => i === t.length - 1 ? '' : '€' + Math.round(Number(v)).toLocaleString('es-ES') } // top tick hidden: it touches the bars axis
+            ticks: { maxTicksLimit: 5, callback: v => '€' + Math.round(Number(v)).toLocaleString('es-ES') }
           },
           yd: {
             stack: 'patr', stackWeight: 2, position: 'left', grace: '45%',
             grid: { color: ctx => ctx.tick && ctx.tick.value === 0 ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.05)' },
-            ticks: { maxTicksLimit: 3, callback: (v, i) => i === 0 ? '' : (Number(v) === 0 ? '0' : fmtDelta(Number(v))) } // bottom tick hidden: it touches the line axis
+            ticks: { maxTicksLimit: 3, callback: (v, i) => i === 0 ? '' : (Number(v) === 0 ? '0' : fmtDelta(Number(v))) } // bottom tick hidden: it shares a line with the top tick of the patrimony axis
           }
         }
       },
@@ -8141,17 +8163,39 @@ function selectSubAmountMode(mode) {
   updateSubKindUI();
 }
 
-function populateSubAccounts(person) {
-  const all = [...(state.accounts[person] || [])];
-  state.accounts.common.forEach(c => all.push({ ...c, name: c.name + ' (Común)' }));
-  document.getElementById('subAccount').innerHTML = all.length
-    ? all.map(a => `<option value="${a.id}">${a.name} — €${fmt(a.balance)}</option>`).join('')
+// Accounts a recurring item can be charged to. A shared item (isCommon) can use
+// any account of either person plus the common ones; otherwise only the owner's
+// accounts plus the common ones. Accounts that don't belong to the owner are tagged.
+function getSubAccountOptions(person, isCommon) {
+  const other = person === 'mario' ? 'miri' : 'mario';
+  const tag = (list, suffix) => (list || []).map(a => ({ ...a, _label: a.name + (suffix ? ` (${suffix})` : '') }));
+  return [
+    ...tag(state.accounts[person], ''),
+    ...(isCommon ? tag(state.accounts[other], getName(other)) : []),
+    ...tag(state.accounts.common, 'Común')
+  ];
+}
+
+function fillSubAccountSelect(selectId, person, isCommon, selectedId) {
+  const el = document.getElementById(selectId);
+  if (!el) return;
+  const opts = getSubAccountOptions(person, isCommon);
+  el.innerHTML = opts.length
+    ? opts.map(a => `<option value="${a.id}">${a._label} — €${fmt(a.balance)}</option>`).join('')
     : '<option value="">Sin cuentas</option>';
+  // Keep the wanted account when it is still available; otherwise fall back to the first one
+  if (selectedId && opts.some(a => a.id === selectedId)) el.value = selectedId;
+}
+
+function populateSubAccounts(person, selectedId) {
+  fillSubAccountSelect('subAccount', person, subIsCommon, selectedId);
 }
 
 function toggleSubCommon() {
   subIsCommon = !subIsCommon;
   updateSubCommonToggle();
+  const current = document.getElementById('subAccount')?.value;
+  populateSubAccounts(subPerson, current);
 }
 
 function updateSubCommonToggle() {
@@ -8464,6 +8508,12 @@ function openRegisterExpense(person, subId, origin = 'detail') {
   document.getElementById('expense-reg-date').value = new Date().toISOString().split('T')[0];
   document.getElementById('expense-reg-note').value = '';
 
+  // Default account: the one used in the latest payment of this expense (if it still
+  // exists), otherwise the account the expense was created with
+  const lastPay = (sub.payments || []).reduce((l, p) => (!l || p.date >= l.date) ? p : l, null);
+  const defaultAcc = (lastPay && findAccountById(lastPay.accountId)) ? lastPay.accountId : sub.accountId;
+  fillSubAccountSelect('expense-reg-account', person, !!sub.isCommon, defaultAcc);
+
   if (origin === 'detail')  closeModal('modalSubDetail');
   if (origin === 'pending') closeModal('modalPendingSubs');
 
@@ -8478,20 +8528,22 @@ function confirmRegisterExpense() {
   const amount = parseFloat(document.getElementById('expense-reg-amount').value) || 0;
   const date   = document.getElementById('expense-reg-date').value;
   const note   = document.getElementById('expense-reg-note').value.trim();
+  const accountId = document.getElementById('expense-reg-account').value;
 
   if (amount <= 0) { showToast('Introduce el importe', 'error'); return; }
   if (!date)       { showToast('Indica la fecha', 'error'); return; }
+  if (!accountId)  { showToast('Selecciona una cuenta', 'error'); return; }
 
-  const acc = findAccountById(sub.accountId);
+  const acc = findAccountById(accountId);
   if (acc) acc.balance -= amount;
 
   const paymentId = Date.now().toString();
 
   state.transactions.push({
     id: paymentId,
-    person,
+    person: getPersonFromAccountId(accountId),
     type: 'expense',
-    accountId: sub.accountId,
+    accountId,
     category: 'Gasto corriente',
     desc: `Gasto: ${sub.name}${note ? ` — ${note}` : ''}`,
     amount,
@@ -8499,7 +8551,8 @@ function confirmRegisterExpense() {
   });
 
   if (!sub.payments) sub.payments = [];
-  sub.payments.push({ id: paymentId, amount, accountId: sub.accountId, date, note });
+  sub.payments.push({ id: paymentId, amount, accountId, date, note });
+  sub.accountId = accountId; // the detail screen's "Cuenta de cargo" follows the last account used
   sub.nextDate = subNextDateAfter(sub.nextDate, sub.cycle);
 
   saveState();
@@ -8626,9 +8679,7 @@ function openEditSubscription() {
 
   updateSubCommonToggle();
   updateSubKindUI();
-  populateSubAccounts(subPerson);
-  // Select current account
-  setTimeout(() => { document.getElementById('subAccount').value = sub.accountId; }, 50);
+  populateSubAccounts(subPerson, sub.accountId);
 
   closeModal('modalSubDetail');
   document.getElementById('modalAddSubscription').classList.add('open');
@@ -10803,7 +10854,7 @@ function openEditTx(id) {
   const t = state.transactions.find(x => x.id === id);
   if (!t) return;
 
-  if (t.category === 'Inversión') {
+  if (t.category === 'Inversión' || t.invMovId) {
     showToast('Este movimiento pertenece a una inversión. Edítalo o elimínalo desde el detalle de la posición.', '');
     return;
   }
@@ -11667,18 +11718,22 @@ function saveDividend() {
   const acc = findAccountById(accId);
   if (acc) acc.balance += net;
 
+  const divMovId = Date.now().toString();
   inv.movements.push({
-    id: Date.now().toString(),
+    id: divMovId,
     type: 'dividend',
     gross: gross, withholding: wh, net: net, accId: accId, date: date, notes: notes
   });
 
+  // Dividends are real income: own category "Dividendos" (counted in income totals and charts).
+  // invMovId links the transaction to its investment movement exactly.
   state.transactions.push({
     id: (Date.now() + 1).toString(),
     person: getPersonFromAccountId(accId), type: 'income', accountId: accId,
-    category: 'Inversión',
+    category: 'Dividendos',
     desc: 'Dividendo: ' + inv.name,
-    amount: net, date: date
+    amount: net, date: date,
+    invMovId: divMovId
   });
 
   saveState();
@@ -11750,13 +11805,16 @@ function saveEditDividend() {
   if (newAcc) newAcc.balance += newNet;
 
   // Update linked transaction in state.transactions
-  const txIdx = state.transactions.findIndex(t =>
-    t.date === mov.date &&
-    t.category === 'Inversión' &&
-    t.type === 'income' &&
-    t.accountId === oldAccId &&
-    Math.abs(t.amount - oldNet) < 0.001
-  );
+  let txIdx = state.transactions.findIndex(t => t.invMovId && t.invMovId === mov.id);
+  if (txIdx === -1) {
+    txIdx = state.transactions.findIndex(t =>
+      t.date === mov.date &&
+      (t.category === 'Inversión' || t.category === 'Dividendos') &&
+      t.type === 'income' &&
+      t.accountId === oldAccId &&
+      Math.abs(t.amount - oldNet) < 0.001
+    );
+  }
   if (txIdx !== -1) {
     state.transactions[txIdx].amount    = newNet;
     state.transactions[txIdx].date      = newDate;
@@ -16266,6 +16324,7 @@ function deleteInvMovement() {
 
       // Remove linked transaction (buy/sell/contribution/dividend all create one)
       state.transactions = state.transactions.filter(t => {
+        if (t.invMovId && t.invMovId === mov.id) return false;
         if (t.category !== 'Inversión') return true;
         const sameDate   = t.date === mov.date;
         const sameName   = (t.desc || '').includes(inv.name);
